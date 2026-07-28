@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import text
+from sqlalchemy import text, inspect
 
 from app.database import engine, Base
 from app.routes import auth, user, employee, attendance, salary, leave, task, reminder, backup, role, activity_log, setting, dashboard, reports, expense, inventory
@@ -38,9 +38,23 @@ app.include_router(expense.router)
 app.include_router(inventory.router)
 
 
+def _is_sqlite() -> bool:
+    return engine.url.get_backend_name() == "sqlite"
+
+
 def _column_exists(conn, table: str, column: str) -> bool:
-    rows = conn.execute(text(f"PRAGMA table_info({table})")).fetchall()
-    return any(str(row[1]).lower() == column.lower() for row in rows)
+    if _is_sqlite():
+        rows = conn.execute(text(f"PRAGMA table_info({table})")).fetchall()
+        return any(str(row[1]).lower() == column.lower() for row in rows)
+    else:
+        rows = conn.execute(
+            text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = :table AND column_name = :column"
+            ),
+            {"table": table, "column": column},
+        ).fetchall()
+        return bool(rows)
 
 
 def _add_column_if_missing(conn, table: str, column: str, definition: str) -> None:
@@ -98,6 +112,8 @@ def _rebuild_reminders_table_sqlite(conn) -> None:
 
 
 def _run_sqlite_migrations() -> None:
+    if not _is_sqlite():
+        return
     try:
         with engine.connect() as conn:
             _add_column_if_missing(conn, "expenses", "custom_category", "VARCHAR(200)")
