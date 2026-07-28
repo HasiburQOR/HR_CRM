@@ -1,0 +1,14 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+aiosqlite
+alembic
+python-jose[cryptography]
+bcrypt
+python-multipart
+pydantic
+pydantic-settings
+python-dotenv
+openpyxl
+APScheduler
+psycopg2-binary
