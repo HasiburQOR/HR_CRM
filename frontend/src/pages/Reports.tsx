@@ -11,6 +11,7 @@ import {
   FileText,
   UserRound,
   Package,
+  UtensilsCrossed,
 } from "lucide-react"
 import { reportsService, type PeriodMode, type ReportFilterParams } from "@/services/reports.service"
 import { employeeService } from "@/services/employee.service"
@@ -44,7 +45,7 @@ import {
 } from "@/components/ui/tabs"
 import { useToast } from "@/components/ui/useToast"
 
-type ReportKey = "employees" | "attendance" | "salary" | "expenses" | "inventory"
+type ReportKey = "employees" | "attendance" | "salary" | "expenses" | "inventory" | "lunch"
 
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)
@@ -225,6 +226,8 @@ export default function Reports() {
         return reportsService.downloadInventory({
           employee_id: params.employee_id ? params.employee_id : undefined,
         })
+      case "lunch":
+        return reportsService.downloadLunch(params)
     }
   }
 
@@ -261,6 +264,7 @@ export default function Reports() {
       salary: "Salary / Payroll Report",
       expenses: "Expenses Report",
       inventory: "Inventory Report",
+      lunch: "Lunch Report",
     }
     return map
   }, [])
@@ -314,6 +318,14 @@ export default function Reports() {
           iconBg="bg-violet-600"
           onConfigure={() => openConfigure("inventory")}
           onQuickDownload={() => doQuickDownload("inventory")}
+        />
+        <ReportCard
+          title="Lunch Report"
+          description="Daily lunch count for employees"
+          icon={UtensilsCrossed}
+          iconBg="bg-orange-600"
+          onConfigure={() => openConfigure("lunch")}
+          onQuickDownload={() => doQuickDownload("lunch")}
         />
       </div>
 

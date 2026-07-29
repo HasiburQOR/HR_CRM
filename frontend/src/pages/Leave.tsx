@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react"
-import { Plus, Check, X } from "lucide-react"
+import { Plus, Check, X, UserCircle } from "lucide-react"
 import { leaveService } from "@/services/leave.service"
 import type { LeaveRequest } from "@/types"
 import { Button } from "@/components/ui/button"
+import { useAuth } from "@/contexts/AuthContext"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Table,
@@ -47,6 +48,8 @@ const statusVariant = (s: string) => {
 const LEAVE_TYPES = ["sick", "vacation", "personal", "maternity", "paternity", "unpaid", "other"]
 
 export default function Leave() {
+  const { user } = useAuth()
+  const isEmployee = user?.role === "employee"
   const [rows, setRows] = useState<LeaveRequest[]>([])
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -121,11 +124,19 @@ export default function Leave() {
             <div className="space-y-4 py-4">
               <div className="space-y-2">
                 <Label>Employee</Label>
-                <EmployeeSelect
-                  value={form.employee_id}
-                  onValueChange={(id) => setForm({ ...form, employee_id: id })}
-                  placeholder="Search employee by ID or name..."
-                />
+                {isEmployee ? (
+                  <div className="flex items-center gap-2 p-2 border rounded-md bg-muted/50">
+                    <UserCircle className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-medium">{user?.full_name || user?.username}</span>
+                    <span className="text-xs text-muted-foreground">(Submitted on your behalf)</span>
+                  </div>
+                ) : (
+                  <EmployeeSelect
+                    value={form.employee_id}
+                    onValueChange={(id) => setForm({ ...form, employee_id: id })}
+                    placeholder="Search employee by ID or name..."
+                  />
+                )}
               </div>
               <div className="space-y-2">
                 <Label>Leave Type</Label>

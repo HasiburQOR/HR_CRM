@@ -92,6 +92,8 @@ def create_leave(data: LeaveRequestCreate, db: Session = Depends(get_db), curren
             raise HTTPException(status_code=403, detail="No employee record linked")
     else:
         data_dict = data.model_dump()
+        if not data_dict.get("employee_id"):
+            raise HTTPException(status_code=400, detail="employee_id is required for admin leave requests")
     service = LeaveRequestService(db)
     leave = service.create(data_dict)
     return success_response(data=_enrich_leave(leave, db))

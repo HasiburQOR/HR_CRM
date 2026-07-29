@@ -374,9 +374,6 @@ def report_lunch(
 ):
     q = db.query(Attendance, Employee).outerjoin(Employee, Attendance.employee_id == Employee.id)
 
-    # Only return records where lunch was selected
-    q = q.filter(Attendance.auto_lunch_counted.is_(True))
-
     if date:
         q = q.filter(Attendance.date == date)
     elif start_date and end_date:
@@ -407,7 +404,8 @@ def report_lunch(
             "Date": str(a.date),
             "Clock In": str(a.clock_in) if a.clock_in else "-",
             "Clock Out": str(a.clock_out) if a.clock_out else "-",
-            "Lunch Included": "Yes" if a.auto_lunch_counted else "No",
+            "Lunch Included": "Yes" if a.lunch_included else "No",
+            "Auto Counted": "Yes" if a.auto_lunch_counted else "No",
             "Status": a.status,
             "Notes": a.notes or "",
         }

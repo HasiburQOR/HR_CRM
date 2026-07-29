@@ -252,12 +252,17 @@ export interface DashboardStats {
   active_employees?: number
   present_today?: number
   attendance_today?: number
+  lunch_count_today?: number
   pending_leaves?: number
   pending_tasks?: number
   total_users?: number
   pending_expenses?: number
   active_reminders?: number
   monthly_payroll?: number
+  inventory_total_items?: number
+  inventory_assigned?: number
+  inventory_low_stock?: number
+  inventory_value?: number
   department_distribution?: Array<{ department: string; count: number; [key: string]: any }>
   attendance_trend?: Array<{ date: string; present: number; absent: number; late: number; [key: string]: any }>
   recent_activities?: Array<{ id: string; action: string; resource: string; username: string; created_at: string; [key: string]: any }>

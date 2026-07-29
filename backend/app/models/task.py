@@ -8,7 +8,7 @@ class Task(BaseModel):
 
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
-    assigned_to = Column(String(36), ForeignKey("users.id"), nullable=True)
+    assigned_to = Column(String(36), ForeignKey("employees.id"), nullable=True)
     assigned_by = Column(String(36), ForeignKey("users.id"), nullable=True)
     due_date = Column(Date, nullable=True)
     priority = Column(String(50), default="medium")

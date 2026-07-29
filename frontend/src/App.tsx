@@ -63,9 +63,9 @@ export default function App() {
             <Route
               path="attendance"
               element={
-                <EmployeeRoute>
+                <ProtectedRoute>
                   <AttendancePage />
-                </EmployeeRoute>
+                </ProtectedRoute>
               }
             />
             <Route
@@ -79,17 +79,17 @@ export default function App() {
             <Route
               path="leave"
               element={
-                <EmployeeRoute>
+                <ProtectedRoute>
                   <LeavePage />
-                </EmployeeRoute>
+                </ProtectedRoute>
               }
             />
             <Route
               path="tasks"
               element={
-                <EmployeeRoute>
+                <ProtectedRoute>
                   <TasksPage />
-                </EmployeeRoute>
+                </ProtectedRoute>
               }
             />
             <Route

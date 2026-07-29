@@ -153,10 +153,59 @@ def _run_sqlite_migrations() -> None:
         pass
 
 
+def _run_postgres_migrations() -> None:
+    """Run one-time idempotent migrations for PostgreSQL."""
+    if _is_sqlite():
+        return
+    try:
+        with engine.connect() as conn:
+            # Migrate tasks.assigned_to FK from users.id → employees.id
+            # Check current FK target table
+            fk_rows = conn.execute(text("""
+                SELECT tc.constraint_name, ccu.table_name AS foreign_table
+                FROM information_schema.table_constraints AS tc
+                JOIN information_schema.key_column_usage AS kcu
+                    ON tc.constraint_name = kcu.constraint_name
+                    AND tc.table_schema = kcu.table_schema
+                JOIN information_schema.constraint_column_usage AS ccu
+                    ON ccu.constraint_name = tc.constraint_name
+                    AND ccu.table_schema = tc.table_schema
+                WHERE tc.constraint_type = 'FOREIGN KEY'
+                    AND tc.table_name = 'tasks'
+                    AND kcu.column_name = 'assigned_to'
+            """)).fetchall()
+
+            for row in fk_rows:
+                fk_name = row[0]
+                foreign_table = row[1]
+                if foreign_table == "users":
+                    # Nullify stale user-id values (they won't exist in employees)
+                    conn.execute(text("""
+                        UPDATE tasks
+                        SET assigned_to = NULL
+                        WHERE assigned_to IS NOT NULL
+                            AND assigned_to NOT IN (SELECT id FROM employees)
+                    """))
+                    # Drop old FK and add new one pointing to employees
+                    conn.execute(text(f'ALTER TABLE tasks DROP CONSTRAINT "{fk_name}"'))
+                    conn.execute(text("""
+                        ALTER TABLE tasks
+                        ADD CONSTRAINT tasks_assigned_to_fkey
+                        FOREIGN KEY (assigned_to) REFERENCES employees(id)
+                    """))
+                    conn.commit()
+                    break
+    except Exception:
+        pass
+
+
+
+
 @app.on_event("startup")
 def on_startup():
     Base.metadata.create_all(bind=engine)
     _run_sqlite_migrations()
+    _run_postgres_migrations()
 
 
 @app.get("/health")

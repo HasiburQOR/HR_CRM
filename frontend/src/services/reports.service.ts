@@ -46,6 +46,11 @@ export const reportsService = {
     return res.data
   },
 
+  async downloadLunch(params: ReportFilterParams = {}): Promise<Blob> {
+    const res = await api.get("/reports/lunch", { params, responseType: "blob" })
+    return res.data
+  },
+
   async downloadEmployeeIndividual(employeeId: string): Promise<Blob> {
     const res = await api.get(`/reports/employee/${employeeId}`, { responseType: "blob" })
     return res.data

@@ -19,7 +19,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog"
 import {
   Select,
@@ -96,8 +95,12 @@ export default function Tasks() {
   const assignedToEmployeeId = useMemo<string | undefined>(() => {
     const uid = form.assigned_to
     if (!uid) return undefined
-    const match = employees.find((e) => e.user_id === uid)
-    return match ? match.id : undefined
+    // form.assigned_to stores employee.id (backend resolves to user id)
+    const byId = employees.find((e) => e.id === uid)
+    if (byId) return byId.id
+    // fallback: maybe it's a user_id stored from an existing task
+    const byUserId = employees.find((e) => e.user_id === uid)
+    return byUserId ? byUserId.id : undefined
   }, [form.assigned_to, employees])
 
   function openCreate() {
@@ -117,10 +120,8 @@ export default function Tasks() {
       setForm({ ...form, assigned_to: null as any })
       return
     }
-    setForm({
-      ...form,
-      assigned_to: employee.user_id || employeeId,
-    })
+    // Send employee id directly — backend now stores employee.id in assigned_to
+    setForm({ ...form, assigned_to: employeeId })
   }
 
   async function submitForm() {
@@ -153,21 +154,22 @@ export default function Tasks() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold tracking-tight">Tasks</h2>
           <p className="text-muted-foreground">Assign and manage employee tasks</p>
         </div>
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger asChild>
-            <Button onClick={openCreate}><Plus className="mr-2 h-4 w-4" /> New Task</Button>
-          </DialogTrigger>
+        <Button onClick={openCreate}><Plus className="mr-2 h-4 w-4" /> New Task</Button>
+      </div>
+
+      {/* Task Create/Edit Dialog - fully controlled, no DialogTrigger */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogContent>
             <DialogHeader><DialogTitle>{editingId ? "Edit Task" : "New Task"}</DialogTitle></DialogHeader>
             <div className="space-y-4 py-4">
               <div className="space-y-2">
-                <Label>Title</Label>
-                <Input value={form.title || ""} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+                <Label>Title *</Label>
+                <Input value={form.title || ""} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Task title..." />
               </div>
               <div className="space-y-2">
                 <Label>Description</Label>
@@ -183,7 +185,7 @@ export default function Tasks() {
                   includeInactive
                 />
                 <p className="text-[11px] text-muted-foreground mt-1">
-                  Click the field to search by Employee ID, Name, NID, or Email. Employee must have a linked user account.
+                  Employee must have a linked user account to receive tasks.
                 </p>
               </div>
               <div className="grid grid-cols-2 gap-4">
@@ -213,11 +215,15 @@ export default function Tasks() {
             </div>
             <DialogFooter>
               <Button variant="ghost" onClick={() => setDialogOpen(false)}>Cancel</Button>
-              <Button onClick={submitForm}>{editingId ? "Update" : "Create"}</Button>
+              <Button
+                onClick={submitForm}
+                disabled={!form.title?.trim()}
+              >
+                {editingId ? "Update" : "Create"}
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
-      </div>
 
       <Card>
         <CardHeader className="pb-2"><CardTitle className="text-lg">All Tasks ({rows.length})</CardTitle></CardHeader>

@@ -57,6 +57,7 @@ class AuthService:
         if not user.is_active:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is disabled")
         token = create_access_token({"sub": user.id})
+        emp = self.db.query(Employee).filter(Employee.user_id == user.id, Employee.deleted_at.is_(None)).first()
         return {
             "success": True,
             "data": {
@@ -69,6 +70,7 @@ class AuthService:
                     "role": self._get_role_name(user),
                     "role_id": user.role_id,
                     "is_superuser": user.is_superuser,
+                    "employee_id": emp.employee_id if emp else None,
                 },
             },
         }

@@ -35,29 +35,37 @@ class DashboardService:
             Employee.deleted_at.is_(None), Employee.status == "active"
         ).count()
 
-        tomorrow = today + timedelta(days=1)
         if is_employee and emp:
             present_today = self.db.query(Attendance).filter(
                 Attendance.date == today,
                 Attendance.employee_id == emp.id,
                 Attendance.status.in_(["present", "approved"]),
             ).count()
-            # Count employees who selected "Will have lunch tomorrow" during today's check-in
             lunch_count_today = self.db.query(Attendance).filter(
+                Attendance.date == today,
+                Attendance.employee_id == emp.id,
+                Attendance.lunch_included.is_(True),
+            ).count()
+            auto_lunch_count = self.db.query(Attendance).filter(
                 Attendance.date == today,
                 Attendance.employee_id == emp.id,
                 Attendance.auto_lunch_counted.is_(True),
             ).count()
+            lunch_count_today = lunch_count_today + auto_lunch_count
         else:
             present_today = self.db.query(Attendance).filter(
                 Attendance.date == today,
                 Attendance.status.in_(["present", "approved"]),
             ).count()
-            # Count employees who selected "Will have lunch tomorrow" during today's check-in
             lunch_count_today = self.db.query(Attendance).filter(
+                Attendance.date == today,
+                Attendance.lunch_included.is_(True),
+            ).count()
+            auto_lunch_count = self.db.query(Attendance).filter(
                 Attendance.date == today,
                 Attendance.auto_lunch_counted.is_(True),
             ).count()
+            lunch_count_today = lunch_count_today + auto_lunch_count
 
         if is_employee and emp:
             pending_leaves = self.db.query(LeaveRequest).filter(

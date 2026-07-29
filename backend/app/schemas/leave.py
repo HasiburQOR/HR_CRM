@@ -13,7 +13,7 @@ class LeaveRequestBase(BaseModel):
 
 
 class LeaveRequestCreate(BaseModel):
-    employee_id: str
+    employee_id: str | None = None
     leave_type: str
     start_date: date
     end_date: date

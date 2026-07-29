@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { Users, CalendarClock, Wallet, CalendarCheck, Check, X, CheckCircle, Banknote, ListTodo, Receipt, CalendarDays, Package, AlertTriangle, UserPlus } from "lucide-react"
+import { Users, CalendarClock, Wallet, CalendarCheck, Check, X, CheckCircle, Banknote, ListTodo, Receipt, CalendarDays, Package, AlertTriangle, UserPlus, UtensilsCrossed } from "lucide-react"
 import { dashboardService } from "@/services/dashboard.service"
 import { leaveService } from "@/services/leave.service"
 import { expenseService } from "@/services/expense.service"
@@ -263,6 +263,13 @@ export default function Dashboard() {
             loading={loading}
             className="bg-emerald-50"
           />
+          <StatCard
+            title="Will Have Lunch Tomorrow"
+            value={stats?.lunch_count_today ?? 0}
+            icon={UtensilsCrossed}
+            loading={loading}
+            className="bg-orange-50"
+          />
         </div>
       )}
 
@@ -331,24 +338,26 @@ export default function Dashboard() {
                       <TableCell>{r.end_date ? formatDate(r.end_date) : "—"}</TableCell>
                       <TableCell className="max-w-xs truncate text-muted-foreground">{r.reason || "—"}</TableCell>
                       <TableCell className="text-right">
-                        <div className="inline-flex gap-1 justify-end">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            disabled={refreshing === `leave-${r.id}`}
-                            onClick={() => approveLeave(r.id)}
-                          >
-                            <Check className="h-4 w-4 text-emerald-600" />
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            disabled={refreshing === `leave-${r.id}`}
-                            onClick={() => rejectLeave(r.id)}
-                          >
-                            <X className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </div>
+                        {!isEmployee && (
+                          <div className="inline-flex gap-1 justify-end">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              disabled={refreshing === `leave-${r.id}`}
+                              onClick={() => approveLeave(r.id)}
+                            >
+                              <Check className="h-4 w-4 text-emerald-600" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              disabled={refreshing === `leave-${r.id}`}
+                              onClick={() => rejectLeave(r.id)}
+                            >
+                              <X className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </div>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -390,14 +399,16 @@ export default function Dashboard() {
                       <TableCell className="max-w-xs truncate text-muted-foreground">{r.description || "—"}</TableCell>
                       <TableCell className="text-right font-mono font-medium">{formatCurrency(Number(r.amount) || 0)}</TableCell>
                       <TableCell className="text-right">
-                        <div className="inline-flex gap-1 justify-end">
-                          <Button size="sm" variant="ghost" disabled={refreshing === `exp-${r.id}`} onClick={() => approveExpense(r.id)}>
-                            <Check className="h-4 w-4 text-emerald-600" />
-                          </Button>
-                          <Button size="sm" variant="ghost" disabled={refreshing === `exp-${r.id}`} onClick={() => rejectExpense(r.id)}>
-                            <X className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </div>
+                        {!isEmployee && (
+                          <div className="inline-flex gap-1 justify-end">
+                            <Button size="sm" variant="ghost" disabled={refreshing === `exp-${r.id}`} onClick={() => approveExpense(r.id)}>
+                              <Check className="h-4 w-4 text-emerald-600" />
+                            </Button>
+                            <Button size="sm" variant="ghost" disabled={refreshing === `exp-${r.id}`} onClick={() => rejectExpense(r.id)}>
+                              <X className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </div>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -437,11 +448,13 @@ export default function Dashboard() {
                       <TableCell className="text-right font-mono font-bold">{formatCurrency(Number(r.net_salary) || 0)}</TableCell>
                       <TableCell><Badge variant="warning" className="capitalize">{r.status || "pending"}</Badge></TableCell>
                       <TableCell className="text-right">
-                        <div className="inline-flex gap-1 justify-end">
-                          <Button size="sm" variant="ghost" disabled={refreshing === `sal-${r.id}`} onClick={() => approveSalary(r.id)} title="Approve salary">
-                            <CheckCircle className="h-4 w-4 text-emerald-600" />
-                          </Button>
-                        </div>
+                        {!isEmployee && (
+                          <div className="inline-flex gap-1 justify-end">
+                            <Button size="sm" variant="ghost" disabled={refreshing === `sal-${r.id}`} onClick={() => approveSalary(r.id)} title="Approve salary">
+                              <CheckCircle className="h-4 w-4 text-emerald-600" />
+                            </Button>
+                          </div>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}

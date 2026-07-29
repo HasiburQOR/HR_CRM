@@ -445,7 +445,7 @@ export default function Attendance() {
                   <UtensilsCrossed className="h-4 w-4 text-orange-700" />
                 </div>
                 <div>
-                  <div className="font-medium text-sm">Will have lunch today?</div>
+                  <div className="font-medium text-sm">Will have lunch tomorrow?</div>
                   <div className="text-xs text-muted-foreground">Marks attendance lunch as provided / counted</div>
                 </div>
               </div>
