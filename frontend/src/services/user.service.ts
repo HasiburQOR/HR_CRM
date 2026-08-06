@@ -25,7 +25,10 @@ export const userService = {
     email: string
     password: string
     full_name?: string
+    role?: string
     role_id?: string
+    is_active?: boolean
+    is_superuser?: boolean
     employee_id?: string
   }): Promise<User> {
     const res = await api.post<ApiResponse<User>>("/users", data, {

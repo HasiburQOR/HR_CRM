@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { Users, CalendarClock, Wallet, CalendarCheck, Check, X, CheckCircle, Banknote, ListTodo, Receipt, CalendarDays, Package, AlertTriangle, UserPlus, UtensilsCrossed } from "lucide-react"
+import { Users, CalendarClock, Wallet, CalendarCheck, Check, X, CheckCircle, Banknote, ListTodo, Receipt, CalendarDays, Package, AlertTriangle, UserPlus, UtensilsCrossed, Bell } from "lucide-react"
 import { dashboardService } from "@/services/dashboard.service"
 import { leaveService } from "@/services/leave.service"
 import { expenseService } from "@/services/expense.service"
@@ -161,6 +161,7 @@ export default function Dashboard() {
   const expenses: any[] = stats?.pending_expenses_list || []
   const salaries: any[] = stats?.pending_salaries_list || []
   const tasks: any[] = stats?.pending_tasks_list || []
+  const reminders: any[] = stats?.pending_reminders_list || []
   const totalPending = leaves.length + expenses.length + salaries.length + tasks.length
 
   return (
@@ -287,7 +288,7 @@ export default function Dashboard() {
         </CardHeader>
         <CardContent className="pt-0">
           <Tabs defaultValue="leaves" className="w-full">
-            <TabsList className="mb-4 grid grid-cols-4 w-full md:w-auto md:inline-grid md:grid-cols-4">
+            <TabsList className="mb-4 grid grid-cols-5 w-full md:w-auto md:inline-grid md:grid-cols-5">
               <TabsTrigger value="leaves" className="gap-1.5">
                 <CalendarCheck className="h-3.5 w-3.5" /> Leaves ({leaves.length})
               </TabsTrigger>
@@ -299,6 +300,9 @@ export default function Dashboard() {
               </TabsTrigger>
               <TabsTrigger value="tasks" className="gap-1.5">
                 <ListTodo className="h-3.5 w-3.5" /> Tasks ({tasks.length})
+              </TabsTrigger>
+              <TabsTrigger value="reminders" className="gap-1.5">
+                <Bell className="h-3.5 w-3.5" /> Reminders ({reminders.length})
               </TabsTrigger>
             </TabsList>
 
@@ -507,6 +511,37 @@ export default function Dashboard() {
                         </Badge>
                       </TableCell>
                       <TableCell>{r.due_date ? formatDate(r.due_date) : "—"}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TabsContent>
+
+            <TabsContent value="reminders">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Title</TableHead>
+                    <TableHead>Note</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Created By</TableHead>
+                    <TableHead>Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {loading ? (
+                    <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">Loading...</TableCell></TableRow>
+                  ) : reminders.length === 0 ? (
+                    <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-6">No pending reminders</TableCell></TableRow>
+                  ) : reminders.map((r: any) => (
+                    <TableRow key={r.id}>
+                      <TableCell className="font-medium">{r.title}</TableCell>
+                      <TableCell className="max-w-xs truncate">{r.note || r.description || "—"}</TableCell>
+                      <TableCell>{r.reminder_date ? formatDate(r.reminder_date) : "—"}</TableCell>
+                      <TableCell>{r.created_by_name || "—"}</TableCell>
+                      <TableCell>
+                        <Badge variant="warning">{r.status === "ongoing" ? "Ongoing" : r.status || "Pending"}</Badge>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

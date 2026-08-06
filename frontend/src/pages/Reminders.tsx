@@ -131,14 +131,12 @@ export default function Reminders() {
                 <Input value={form.title || ""} onChange={(e) => setForm({ ...form, title: e.target.value })} />
               </div>
               <div className="space-y-2">
-                <Label>Message</Label>
-                <Textarea value={form.message || ""} onChange={(e) => setForm({ ...form, message: e.target.value })} />
+                <Label>Note</Label>
+                <Textarea value={form.note || ""} onChange={(e) => setForm({ ...form, note: e.target.value })} />
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Reminder Time</Label>
-                  <Input type="datetime-local" value={form.reminder_time ? String(form.reminder_time).slice(0, 16) : ""} onChange={(e) => setForm({ ...form, reminder_time: e.target.value })} />
-                </div>
+              <div className="space-y-2">
+                <Label>Reminder Date</Label>
+                <Input type="date" value={form.reminder_date ? String(form.reminder_date).slice(0, 10) : ""} onChange={(e) => setForm({ ...form, reminder_date: e.target.value })} />
               </div>
             </div>
             <DialogFooter>
@@ -157,17 +155,18 @@ export default function Reminders() {
               <TableRow>
                 <TableHead className="w-12"></TableHead>
                 <TableHead>Title</TableHead>
-                <TableHead>Message</TableHead>
-                <TableHead>Time</TableHead>
+                <TableHead>Note</TableHead>
+                <TableHead>Date</TableHead>
+                <TableHead>Created At</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
-                <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground">Loading...</TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground">Loading...</TableCell></TableRow>
               ) : rows.length === 0 ? (
-                <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground">No reminders yet</TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground">No reminders yet</TableCell></TableRow>
               ) : rows.map((r) => (
                 <TableRow key={r.id} className={cn(r.is_completed && "opacity-60")}>
                   <TableCell>
@@ -180,11 +179,12 @@ export default function Reminders() {
                     </button>
                   </TableCell>
                   <TableCell className={cn("font-medium", r.is_completed && "line-through")}>{r.title}</TableCell>
-                  <TableCell className="max-w-sm truncate">{r.message || "—"}</TableCell>
-                  <TableCell>{r.reminder_time ? formatDateTime(r.reminder_time) : "—"}</TableCell>
+                  <TableCell className="max-w-sm truncate">{r.note || r.description || "—"}</TableCell>
+                  <TableCell>{r.reminder_date || "—"}</TableCell>
+                  <TableCell>{r.created_at ? formatDateTime(r.created_at) : "—"}</TableCell>
                   <TableCell>
                     <Badge variant={r.is_completed ? "success" : "warning"}>
-                      {r.is_completed ? "Completed" : "Pending"}
+                      {r.status === "ongoing" ? "Ongoing" : r.is_completed ? "Completed" : "Pending"}
                     </Badge>
                   </TableCell>
                   <TableCell className="text-right">

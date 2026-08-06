@@ -1,9 +1,39 @@
 from app.database import engine, Base, SessionLocal
+import app.models  # Import ALL models so Base.metadata.create_all creates every table
 from app.models.user import User
 from app.models.role import Role
 from app.utils.security import hash_password
 
 Base.metadata.create_all(bind=engine)
+
+# Migrate: add missing columns to existing tables
+from sqlalchemy import text, inspect
+db = SessionLocal()
+try:
+    inspector = inspect(engine)
+    if "salaries" in inspector.get_table_names():
+        cols = [c["name"] for c in inspector.get_columns("salaries")]
+        with engine.begin() as conn:
+            if "gross_salary" not in cols:
+                conn.execute(text("ALTER TABLE salaries ADD COLUMN gross_salary FLOAT DEFAULT 0.0"))
+                print("Added column: salaries.gross_salary")
+            if "notes" not in cols:
+                conn.execute(text("ALTER TABLE salaries ADD COLUMN notes VARCHAR(500)"))
+                print("Added column: salaries.notes")
+    if "reminders" in inspector.get_table_names():
+        rcols = [c["name"] for c in inspector.get_columns("reminders")]
+        with engine.begin() as conn:
+            if "status" not in rcols:
+                conn.execute(text("ALTER TABLE reminders ADD COLUMN status VARCHAR(20) DEFAULT 'ongoing'"))
+                print("Added column: reminders.status")
+    if "requisitions" in inspector.get_table_names():
+        qcols = [c["name"] for c in inspector.get_columns("requisitions")]
+        with engine.begin() as conn:
+            if "duration_days" not in qcols:
+                conn.execute(text("ALTER TABLE requisitions ADD COLUMN duration_days INTEGER"))
+                print("Added column: requisitions.duration_days")
+finally:
+    db.close()
 
 db = SessionLocal()
 try:

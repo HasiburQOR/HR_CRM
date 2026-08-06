@@ -10,6 +10,7 @@ from app.models.backup import Backup
 from app.models.activity_log import ActivityLog
 from app.models.setting import Setting
 from app.models.expense import Expense
+from app.models.requisition import Requisition, RequisitionExpense
 
 __all__ = [
     "User",
@@ -24,4 +25,6 @@ __all__ = [
     "ActivityLog",
     "Setting",
     "Expense",
+    "Requisition",
+    "RequisitionExpense",
 ]

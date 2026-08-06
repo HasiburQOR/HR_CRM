@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { UserPlus, Pencil, Trash2, Download, FileText } from "lucide-react"
+import { UserPlus, Pencil, Trash2, Download, FileText, Eye, EyeOff } from "lucide-react"
 import { employeeService } from "@/services/employee.service"
 import { reportsService } from "@/services/reports.service"
 import type { Employee } from "@/types"
@@ -44,6 +44,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { useToast } from "@/components/ui/useToast"
+import { Switch } from "@/components/ui/switch"
 import { formatDate, formatCurrency } from "@/lib/utils"
 
 const statusVariant = (s: string) => {
@@ -65,6 +66,8 @@ export default function Employees() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState<EmployeeFormState>({})
   const [deleteId, setDeleteId] = useState<string | null>(null)
+  const [viewEmployee, setViewEmployee] = useState<Employee | null>(null)
+  const [salaryVisible, setSalaryVisible] = useState(false)
   const { toast } = useToast()
 
   useEffect(() => {
@@ -221,7 +224,7 @@ export default function Employees() {
                   <Input id="f_dept" value={form.department || ""} onChange={(e) => setForm({ ...form, department: e.target.value })} placeholder="e.g. HR, IT, Finance" />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="f_jtitle">Job Title / Designation</Label>
+                  <Label htmlFor="f_jtitle">Designation</Label>
                   <Input id="f_jtitle" value={form.job_title || form.designation || ""} onChange={(e) => setForm({ ...form, job_title: e.target.value, designation: e.target.value })} placeholder="e.g. Software Engineer" />
                 </div>
               </div>
@@ -269,18 +272,17 @@ export default function Employees() {
                 <TableHead>NID</TableHead>
                 <TableHead>Birthday</TableHead>
                 <TableHead>Department</TableHead>
-                <TableHead>Job Title</TableHead>
+                <TableHead>Designation</TableHead>
                 <TableHead>Hire Date</TableHead>
-                <TableHead>Salary</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
-                <TableRow><TableCell colSpan={10} className="text-center text-muted-foreground">Loading...</TableCell></TableRow>
+                <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground">Loading...</TableCell></TableRow>
               ) : rows.length === 0 ? (
-                <TableRow><TableCell colSpan={10} className="text-center text-muted-foreground">No employees yet</TableCell></TableRow>
+                <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground">No employees yet</TableCell></TableRow>
               ) : rows.map((r) => (
                 <TableRow key={r.id}>
                   <TableCell className="font-mono text-xs">{r.employee_id}</TableCell>
@@ -290,12 +292,14 @@ export default function Employees() {
                   <TableCell>{r.department || "—"}</TableCell>
                   <TableCell>{r.job_title || r.designation || "—"}</TableCell>
                   <TableCell>{r.hire_date || r.date_of_joining ? formatDate(r.hire_date || r.date_of_joining!) : "—"}</TableCell>
-                  <TableCell className="font-mono">{formatCurrency(r.salary || 0)}</TableCell>
                   <TableCell>
                     <Badge variant={statusVariant(r.status || "active")} className="capitalize">{r.status || "active"}</Badge>
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="inline-flex gap-1 justify-end">
+                      <Button size="sm" variant="ghost" onClick={() => { setViewEmployee(r); setSalaryVisible(false); }} title="View Details">
+                        <Eye className="h-4 w-4 text-blue-600" />
+                      </Button>
                       <Button size="sm" variant="ghost" onClick={() => downloadIndividualReport(r)} title="Download individual report">
                         <FileText className="h-4 w-4 text-indigo-600" />
                       </Button>
@@ -327,6 +331,90 @@ export default function Employees() {
           </Table>
         </CardContent>
       </Card>
+
+      {/* View Employee Detail Modal */}
+      <Dialog open={!!viewEmployee} onOpenChange={(o) => !o && setViewEmployee(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Employee Details</DialogTitle>
+            <DialogDescription>Complete information for this employee</DialogDescription>
+          </DialogHeader>
+          {viewEmployee && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <span className="text-muted-foreground">Employee ID</span>
+                  <p className="font-mono font-medium">{viewEmployee.employee_id || "—"}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Full Name</span>
+                  <p className="font-medium">{viewEmployee.full_name || [viewEmployee.first_name, viewEmployee.last_name].filter(Boolean).join(" ") || "—"}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Email</span>
+                  <p className="font-medium">{viewEmployee.email || "—"}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Phone</span>
+                  <p className="font-medium">{viewEmployee.phone || "—"}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">National ID (NID)</span>
+                  <p className="font-mono">{viewEmployee.nid || viewEmployee.national_id || "—"}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Date of Birth</span>
+                  <p>{viewEmployee.date_of_birth || viewEmployee.birthday ? formatDate(viewEmployee.date_of_birth || viewEmployee.birthday!) : "—"}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Department</span>
+                  <p className="font-medium">{viewEmployee.department || "—"}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Designation</span>
+                  <p className="font-medium">{viewEmployee.job_title || viewEmployee.designation || "—"}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Hire Date</span>
+                  <p>{viewEmployee.hire_date || viewEmployee.date_of_joining ? formatDate(viewEmployee.hire_date || viewEmployee.date_of_joining!) : "—"}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Status</span>
+                  <p><Badge variant={statusVariant(viewEmployee.status || "active")} className="capitalize">{viewEmployee.status || "active"}</Badge></p>
+                </div>
+              </div>
+              <div className="text-sm">
+                <span className="text-muted-foreground">Address</span>
+                <p className="font-medium">{viewEmployee.address || "—"}</p>
+              </div>
+
+              {/* Salary Section with Toggle */}
+              <div className="border rounded-lg p-3 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    {salaryVisible ? <EyeOff className="h-4 w-4 text-muted-foreground" /> : <Eye className="h-4 w-4 text-muted-foreground" />}
+                    <span className="text-sm font-medium">Salary Information</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">{salaryVisible ? "Unhide Salary" : "Hide Salary"}</span>
+                    <Switch
+                      checked={salaryVisible}
+                      onCheckedChange={setSalaryVisible}
+                    />
+                  </div>
+                </div>
+                {salaryVisible ? (
+                  <div className="font-mono text-lg font-semibold text-green-600">
+                    {formatCurrency(viewEmployee.salary || 0)}
+                  </div>
+                ) : (
+                  <div className="font-mono text-lg text-muted-foreground tracking-widest">*******</div>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

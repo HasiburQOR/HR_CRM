@@ -19,6 +19,8 @@ import ActivityLogsPage from '@/pages/ActivityLogs'
 import UsersPage from '@/pages/Users'
 import ExpensesPage from '@/pages/Expenses'
 import InventoryPage from '@/pages/Inventory'
+import RequisitionsPage from '@/pages/Requisitions'
+import RequisitionDetailPage from '@/pages/RequisitionDetail'
 import { useAuth } from '@/contexts/AuthContext'
 
 function EmployeeRoute({ children }: { children: React.ReactNode }) {
@@ -153,6 +155,22 @@ export default function App() {
               element={
                 <AdminRoute>
                   <InventoryPage />
+                </AdminRoute>
+              }
+            />
+            <Route
+              path="requisitions"
+              element={
+                <AdminRoute>
+                  <RequisitionsPage />
+                </AdminRoute>
+              }
+            />
+            <Route
+              path="requisitions/:id"
+              element={
+                <AdminRoute>
+                  <RequisitionDetailPage />
                 </AdminRoute>
               }
             />

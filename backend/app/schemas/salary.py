@@ -6,6 +6,7 @@ class SalaryBase(BaseModel):
     employee_id: str
     month: str = ""
     year: int = 2026
+    gross_salary: float = 0.0
     basic_salary: float = 0.0
     allowances: float = 0.0
     deductions: float = 0.0
@@ -13,6 +14,7 @@ class SalaryBase(BaseModel):
     payment_date: str | None = None
     status: str = "pending"
     approved_by: str | None = None
+    notes: str | None = None
 
 
 class SalaryCreate(SalaryBase):
@@ -23,6 +25,7 @@ class SalaryUpdate(BaseModel):
     employee_id: str | None = None
     month: str | None = None
     year: int | None = None
+    gross_salary: float | None = None
     basic_salary: float | None = None
     allowances: float | None = None
     deductions: float | None = None
@@ -30,6 +33,7 @@ class SalaryUpdate(BaseModel):
     payment_date: str | None = None
     status: str | None = None
     approved_by: str | None = None
+    notes: str | None = None
 
 
 class SalaryResponse(SalaryBase):

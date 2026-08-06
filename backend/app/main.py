@@ -1,9 +1,11 @@
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text, inspect
 
 from app.database import engine, Base
-from app.routes import auth, user, employee, attendance, salary, leave, task, reminder, backup, role, activity_log, setting, dashboard, reports, expense, inventory
+from app.routes import auth, user, employee, attendance, salary, leave, task, reminder, backup, role, activity_log, setting, dashboard, reports, expense, inventory, requisition
 from app.middleware.auth_middleware import AuthContextMiddleware
 from app.middleware.audit_middleware import AuditMiddleware
 
@@ -36,6 +38,7 @@ app.include_router(dashboard.router)
 app.include_router(reports.router)
 app.include_router(expense.router)
 app.include_router(inventory.router)
+app.include_router(requisition.router)
 
 
 def _is_sqlite() -> bool:
@@ -206,6 +209,11 @@ def on_startup():
     Base.metadata.create_all(bind=engine)
     _run_sqlite_migrations()
     _run_postgres_migrations()
+
+    # Serve uploaded files at /uploads/
+    uploads_root = "/app/uploads"
+    os.makedirs(uploads_root, exist_ok=True)
+    app.mount("/uploads", StaticFiles(directory=uploads_root), name="uploads")
 
 
 @app.get("/health")

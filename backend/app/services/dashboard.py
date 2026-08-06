@@ -426,6 +426,46 @@ class DashboardService:
                     "created_at": t.created_at.isoformat() if t.created_at else None,
                 })
 
+        # Pending reminders list with creator info
+        pending_reminders_list = []
+        try:
+            from app.models.reminder import Reminder
+            if is_employee and emp:
+                reminder_rows = self.db.query(Reminder).filter(
+                    Reminder.is_completed == False,
+                    Reminder.user_id == current_user.id,
+                ).order_by(Reminder.created_at.desc()).limit(10).all()
+                for rem in reminder_rows:
+                    pending_reminders_list.append({
+                        "id": rem.id,
+                        "title": rem.title,
+                        "description": rem.description or "",
+                        "note": rem.description or "",
+                        "reminder_date": str(rem.reminder_date) if rem.reminder_date else None,
+                        "status": rem.status or "ongoing",
+                        "created_by_name": current_user.full_name or current_user.username or "",
+                        "created_at": rem.created_at.isoformat() if rem.created_at else None,
+                    })
+            else:
+                reminder_rows = self.db.query(Reminder, User).filter(
+                    Reminder.is_completed == False,
+                    Reminder.user_id == User.id,
+                    User.deleted_at.is_(None),
+                ).order_by(Reminder.created_at.desc()).limit(10).all()
+                for rem, rem_user in reminder_rows:
+                    pending_reminders_list.append({
+                        "id": rem.id,
+                        "title": rem.title,
+                        "description": rem.description or "",
+                        "note": rem.description or "",
+                        "reminder_date": str(rem.reminder_date) if rem.reminder_date else None,
+                        "status": rem.status or "ongoing",
+                        "created_by_name": rem_user.full_name or rem_user.username or "",
+                        "created_at": rem.created_at.isoformat() if rem.created_at else None,
+                    })
+        except Exception:
+            pass
+
         return {
             "total_users": total_users,
             "total_employees": total_employees,
@@ -452,4 +492,5 @@ class DashboardService:
             "pending_expenses_list": pending_expenses_list,
             "pending_salaries_list": pending_salaries_list,
             "pending_tasks_list": pending_tasks_list,
+            "pending_reminders_list": pending_reminders_list,
         }

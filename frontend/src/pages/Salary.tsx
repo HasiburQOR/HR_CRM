@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useState, useMemo } from "react"
 import { Plus, CheckCircle, Banknote } from "lucide-react"
 import { salaryService } from "@/services/salary.service"
 import type { Salary } from "@/types"
@@ -72,13 +72,42 @@ export default function Salary() {
     setDialogOpen(true)
   }
 
+  // Auto-calculations from gross salary
+  const grossSalary = Number(form.gross_salary || 0)
+  const basicSalary = useMemo(() => Math.round(grossSalary * 0.6), [grossSalary])
+  const allowances = useMemo(() => Math.round(grossSalary * 0.4), [grossSalary])
+  const deductions = Number(form.deductions || 0)
+  const netSalary = grossSalary - deductions
+
+  function handleGrossChange(value: string) {
+    const gross = Number(value) || 0
+    setForm({
+      ...form,
+      gross_salary: gross,
+      basic_salary: Math.round(gross * 0.6),
+      allowances: Math.round(gross * 0.4),
+    })
+  }
+
+  function handleDeductionsChange(value: string) {
+    setForm({ ...form, deductions: Number(value) || 0 })
+  }
+
   async function submitForm() {
     try {
-      const basic = Number(form.basic_salary || 0)
-      const allowances = Number(form.allowances || 0)
-      const deductions = Number(form.deductions || 0)
-      const net = basic + allowances - deductions
-      await salaryService.create({ ...form, basic_salary: basic, allowances, deductions, net_salary: net })
+      const gross = Number(form.gross_salary || 0)
+      const basic = Math.round(gross * 0.6)
+      const allow = Math.round(gross * 0.4)
+      const deduct = Number(form.deductions || 0)
+      const net = gross - deduct
+      await salaryService.create({
+        ...form,
+        gross_salary: gross,
+        basic_salary: basic,
+        allowances: allow,
+        deductions: deduct,
+        net_salary: net,
+      })
       toast({ title: "Created", variant: "success" })
       setDialogOpen(false)
       load()
@@ -146,20 +175,89 @@ export default function Salary() {
                   <Input type="number" value={form.year || ""} onChange={(e) => setForm({ ...form, year: Number(e.target.value) })} />
                 </div>
               </div>
-              <div className="grid grid-cols-3 gap-4">
+
+              {/* Gross Salary Input */}
+              <div className="space-y-2">
+                <Label className="text-base font-semibold">Gross Salary (BDT)</Label>
+                <Input
+                  type="number"
+                  placeholder="Enter gross salary"
+                  value={form.gross_salary ?? ""}
+                  onChange={(e) => handleGrossChange(e.target.value)}
+                  className="text-lg font-semibold"
+                />
+                <p className="text-xs text-muted-foreground">Basic (60%) and Allowances (40%) are auto-calculated from gross salary</p>
+              </div>
+
+              {/* Auto-calculated breakdown */}
+              <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>Basic</Label>
-                  <Input type="number" value={form.basic_salary ?? ""} onChange={(e) => setForm({ ...form, basic_salary: Number(e.target.value) })} />
+                  <Label>Basic Salary (60%)</Label>
+                  <Input
+                    type="number"
+                    value={basicSalary || ""}
+                    readOnly
+                    className="bg-muted cursor-not-allowed font-mono"
+                  />
                 </div>
                 <div className="space-y-2">
-                  <Label>Allowances</Label>
-                  <Input type="number" value={form.allowances ?? ""} onChange={(e) => setForm({ ...form, allowances: Number(e.target.value) })} />
-                </div>
-                <div className="space-y-2">
-                  <Label>Deductions</Label>
-                  <Input type="number" value={form.deductions ?? ""} onChange={(e) => setForm({ ...form, deductions: Number(e.target.value) })} />
+                  <Label>Allowances (40%)</Label>
+                  <Input
+                    type="number"
+                    value={allowances || ""}
+                    readOnly
+                    className="bg-muted cursor-not-allowed font-mono text-emerald-600"
+                  />
                 </div>
               </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Deductions</Label>
+                  <Input
+                    type="number"
+                    value={form.deductions ?? ""}
+                    onChange={(e) => handleDeductionsChange(e.target.value)}
+                    className="font-mono text-rose-600"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Net Salary</Label>
+                  <Input
+                    type="number"
+                    value={netSalary || ""}
+                    readOnly
+                    className="bg-muted cursor-not-allowed font-mono font-bold text-blue-600"
+                  />
+                </div>
+              </div>
+
+              {/* Summary box */}
+              {grossSalary > 0 && (
+                <div className="border rounded-lg p-3 text-sm space-y-1 bg-muted/50">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Gross Salary</span>
+                    <span className="font-mono font-semibold">{formatCurrency(grossSalary)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">  Basic (60%)</span>
+                    <span className="font-mono">{formatCurrency(basicSalary)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">  Allowances (40%)</span>
+                    <span className="font-mono text-emerald-600">+{formatCurrency(allowances)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">  Deductions</span>
+                    <span className="font-mono text-rose-600">-{formatCurrency(deductions)}</span>
+                  </div>
+                  <div className="border-t mt-1 pt-1 flex justify-between font-bold">
+                    <span>Net Salary</span>
+                    <span className="font-mono text-blue-600">{formatCurrency(netSalary)}</span>
+                  </div>
+                </div>
+              )}
+
               <div className="space-y-2">
                 <Label>Notes</Label>
                 <Input value={form.notes || ""} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
@@ -181,8 +279,9 @@ export default function Salary() {
               <TableRow>
                 <TableHead>Employee</TableHead>
                 <TableHead>Period</TableHead>
-                <TableHead className="text-right">Basic</TableHead>
-                <TableHead className="text-right">Allowances</TableHead>
+                <TableHead className="text-right">Gross</TableHead>
+                <TableHead className="text-right">Basic (60%)</TableHead>
+                <TableHead className="text-right">Allowances (40%)</TableHead>
                 <TableHead className="text-right">Deductions</TableHead>
                 <TableHead className="text-right">Net</TableHead>
                 <TableHead>Status</TableHead>
@@ -191,34 +290,38 @@ export default function Salary() {
             </TableHeader>
             <TableBody>
               {loading ? (
-                <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground">Loading...</TableCell></TableRow>
+                <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground">Loading...</TableCell></TableRow>
               ) : rows.length === 0 ? (
-                <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground">No records yet</TableCell></TableRow>
-              ) : rows.map((r) => (
-                <TableRow key={r.id}>
-                  <TableCell>{(r as any).employee_name || r.employee_id?.slice(0, 8)}</TableCell>
-                  <TableCell className="capitalize">{r.month} {r.year}</TableCell>
-                  <TableCell className="text-right font-mono">{formatCurrency(r.basic_salary || 0)}</TableCell>
-                  <TableCell className="text-right font-mono text-emerald-600">+{formatCurrency(r.allowances || 0)}</TableCell>
-                  <TableCell className="text-right font-mono text-rose-600">-{formatCurrency(r.deductions || 0)}</TableCell>
-                  <TableCell className="text-right font-mono font-bold">{formatCurrency(r.net_salary || 0)}</TableCell>
-                  <TableCell><Badge variant={statusVariant(r.status || "pending")} className="capitalize">{r.status || "pending"}</Badge></TableCell>
-                  <TableCell className="text-right">
-                    <div className="inline-flex gap-1 justify-end">
-                      {r.status === "pending" && (
-                        <Button size="sm" variant="ghost" onClick={() => approve(r.id)} title="Approve">
-                          <CheckCircle className="h-4 w-4 text-emerald-600" />
-                        </Button>
-                      )}
-                      {r.status === "approved" && (
-                        <Button size="sm" variant="ghost" onClick={() => pay(r.id)} title="Mark Paid">
-                          <Banknote className="h-4 w-4 text-sky-600" />
-                        </Button>
-                      )}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
+                <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground">No records yet</TableCell></TableRow>
+              ) : rows.map((r) => {
+                const gross = (r as any).gross_salary || (r.basic_salary || 0) + (r.allowances || 0)
+                return (
+                  <TableRow key={r.id}>
+                    <TableCell>{(r as any).employee_name || r.employee_id?.slice(0, 8)}</TableCell>
+                    <TableCell className="capitalize">{r.month} {r.year}</TableCell>
+                    <TableCell className="text-right font-mono font-semibold">{formatCurrency(gross)}</TableCell>
+                    <TableCell className="text-right font-mono">{formatCurrency(r.basic_salary || 0)}</TableCell>
+                    <TableCell className="text-right font-mono text-emerald-600">+{formatCurrency(r.allowances || 0)}</TableCell>
+                    <TableCell className="text-right font-mono text-rose-600">-{formatCurrency(r.deductions || 0)}</TableCell>
+                    <TableCell className="text-right font-mono font-bold">{formatCurrency(r.net_salary || 0)}</TableCell>
+                    <TableCell><Badge variant={statusVariant(r.status || "pending")} className="capitalize">{r.status || "pending"}</Badge></TableCell>
+                    <TableCell className="text-right">
+                      <div className="inline-flex gap-1 justify-end">
+                        {r.status === "pending" && (
+                          <Button size="sm" variant="ghost" onClick={() => approve(r.id)} title="Approve">
+                            <CheckCircle className="h-4 w-4 text-emerald-600" />
+                          </Button>
+                        )}
+                        {r.status === "approved" && (
+                          <Button size="sm" variant="ghost" onClick={() => pay(r.id)} title="Mark Paid">
+                            <Banknote className="h-4 w-4 text-sky-600" />
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
             </TableBody>
           </Table>
         </CardContent>

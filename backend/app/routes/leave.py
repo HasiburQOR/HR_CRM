@@ -116,6 +116,10 @@ def approve_leave(leave_id: str, db: Session = Depends(get_db), current_user: An
     leave = db.query(LeaveRequest).filter(LeaveRequest.id == leave_id).first()
     if not leave:
         raise HTTPException(status_code=404, detail="Leave request not found")
+    # Prevent self-approval: check if the approver is the same employee who requested the leave
+    approver_emp = _get_current_employee(db, current_user)
+    if approver_emp and leave.employee_id == approver_emp.id:
+        raise HTTPException(status_code=403, detail="You cannot approve your own leave request")
     leave.status = "approved"
     leave.approved_by = str(current_user.id)
     db.commit()
@@ -130,6 +134,10 @@ def reject_leave(leave_id: str, db: Session = Depends(get_db), current_user: Any
     leave = db.query(LeaveRequest).filter(LeaveRequest.id == leave_id).first()
     if not leave:
         raise HTTPException(status_code=404, detail="Leave request not found")
+    # Prevent self-rejection: check if the rejecter is the same employee who requested the leave
+    rejecter_emp = _get_current_employee(db, current_user)
+    if rejecter_emp and leave.employee_id == rejecter_emp.id:
+        raise HTTPException(status_code=403, detail="You cannot reject your own leave request")
     leave.status = "rejected"
     leave.approved_by = str(current_user.id)
     db.commit()
@@ -139,8 +147,15 @@ def reject_leave(leave_id: str, db: Session = Depends(get_db), current_user: Any
 
 @router.delete("/{leave_id}")
 def delete_leave(leave_id: str, db: Session = Depends(get_db), current_user: Any = Depends(get_current_user)):
+    leave = db.query(LeaveRequest).filter(LeaveRequest.id == leave_id).first()
+    if not leave:
+        raise HTTPException(status_code=404, detail="Leave request not found")
     if _is_employee_role(db, current_user):
-        raise HTTPException(status_code=403, detail="Employees cannot delete leave requests")
+        emp = _get_current_employee(db, current_user)
+        if not emp or leave.employee_id != emp.id:
+            raise HTTPException(status_code=403, detail="Access denied")
+        if leave.status != "pending":
+            raise HTTPException(status_code=400, detail="Can only delete pending leave requests")
     service = LeaveRequestService(db)
     service.delete(leave_id)
     return success_response(data=None)

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { Plus, Check, X, UserCircle } from "lucide-react"
+import { Plus, Check, X, UserCircle, Trash2 } from "lucide-react"
 import { leaveService } from "@/services/leave.service"
 import type { LeaveRequest } from "@/types"
 import { Button } from "@/components/ui/button"
@@ -108,6 +108,16 @@ export default function Leave() {
     }
   }
 
+  async function deleteLeave(id: string) {
+    try {
+      await leaveService.delete(id)
+      toast({ title: "Request deleted", variant: "success" })
+      load()
+    } catch (e: any) {
+      toast({ title: "Error", description: e?.message, variant: "destructive" })
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -202,10 +212,14 @@ export default function Leave() {
                   <TableCell><Badge variant={statusVariant(r.status || "pending")} className="capitalize">{r.status || "pending"}</Badge></TableCell>
                   <TableCell className="text-right">
                     {r.status === "pending" && (
-                      <div className="inline-flex gap-1 justify-end">
-                        <Button size="sm" variant="ghost" onClick={() => approve(r.id)}><Check className="h-4 w-4 text-emerald-600" /></Button>
-                        <Button size="sm" variant="ghost" onClick={() => reject(r.id)}><X className="h-4 w-4 text-destructive" /></Button>
-                      </div>
+                      isEmployee ? (
+                        <Button size="sm" variant="ghost" onClick={() => deleteLeave(r.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                      ) : (
+                        <div className="inline-flex gap-1 justify-end">
+                          <Button size="sm" variant="ghost" onClick={() => approve(r.id)}><Check className="h-4 w-4 text-emerald-600" /></Button>
+                          <Button size="sm" variant="ghost" onClick={() => reject(r.id)}><X className="h-4 w-4 text-destructive" /></Button>
+                        </div>
+                      )
                     )}
                   </TableCell>
                 </TableRow>

@@ -16,7 +16,10 @@ class UserCreate(BaseModel):
     email: str
     password: str
     full_name: str | None = None
+    role: str | None = None
     role_id: str | None = None
+    is_active: bool = True
+    is_superuser: bool = False
 
 
 class UserUpdate(BaseModel):

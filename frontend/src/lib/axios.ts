@@ -18,6 +18,10 @@ api.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
     }
+    // Let axios auto-set Content-Type for FormData (multipart/form-data with boundary)
+    if (config.data instanceof FormData) {
+      delete config.headers["Content-Type"]
+    }
     return config
   },
   (error) => {
@@ -30,12 +34,17 @@ api.interceptors.response.use(
     return response
   },
   (error: AxiosError) => {
-    if (error.response?.status === 401) {
+    // Extract FastAPI detail message so e.message shows useful info
+    const detail = (error.response?.data as any)?.detail
+    if (detail && typeof detail === "string") {
+      error.message = detail
+    }
+    // Only auto-redirect on 401 if NOT on the login page
+    // (wrong password on login should just show the error, not clear storage)
+    if (error.response?.status === 401 && window.location.pathname !== "/login") {
       localStorage.removeItem("token")
       localStorage.removeItem("user")
-      if (window.location.pathname !== "/login") {
-        window.location.href = "/login"
-      }
+      window.location.href = "/login"
     }
     return Promise.reject(error)
   }

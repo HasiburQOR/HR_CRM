@@ -15,3 +15,4 @@ class Reminder(BaseModel):
     is_completed = Column(Boolean, default=False)
     remind_at = Column(DateTime(timezone=True), nullable=True)
     is_sent = Column(Boolean, default=False)
+    status = Column(String(20), default="ongoing")

@@ -138,11 +138,14 @@ export interface Reminder {
   user_id?: string | null
   title: string
   description?: string | null
+  note?: string | null
   message?: string | null
   reminder_date?: string | null
   reminder_time?: string | null
   reminder_datetime?: string | null
   is_completed?: boolean
+  is_sent?: boolean
+  status?: string
   created_at?: string | null
   updated_at?: string | null
   [key: string]: any
@@ -213,6 +216,28 @@ export interface Expense {
   [key: string]: any
 }
 
+export interface RequisitionExpense {
+  id: string
+  requisition_id: string
+  expense_date?: string | null
+  notes?: string | null
+  amount: number
+  receipt_url?: string | null
+  created_at?: string | null
+  [key: string]: any
+}
+
+export interface Requisition {
+  id: string
+  title: string
+  status: string
+  created_at?: string | null
+  closed_at?: string | null
+  duration_days?: number | null
+  expenses?: RequisitionExpense[]
+  [key: string]: any
+}
+
 export interface InventoryItem {
   id: string
   item_code: string
@@ -266,6 +291,7 @@ export interface DashboardStats {
   department_distribution?: Array<{ department: string; count: number; [key: string]: any }>
   attendance_trend?: Array<{ date: string; present: number; absent: number; late: number; [key: string]: any }>
   recent_activities?: Array<{ id: string; action: string; resource: string; username: string; created_at: string; [key: string]: any }>
+  pending_reminders_list?: Array<{ id: string; title: string; note?: string; reminder_date?: string; status?: string; created_by_name?: string; created_at?: string; [key: string]: any }>
   [key: string]: any
 }
 

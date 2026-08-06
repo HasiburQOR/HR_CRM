@@ -59,6 +59,112 @@ def _is_employee_role(db: Session, current_user: Any) -> bool:
     return get_user_role_name(current_user, db) == "employee"
 
 
+# ---------------------------------------------------------------------------
+# Check-in / Check-out actions — MUST be defined BEFORE /{attendance_id} routes
+# ---------------------------------------------------------------------------
+
+class _CheckIn(BaseModel):
+    employee_id: str
+    date: str | None = None
+    check_in: str | None = None
+    lunch_included: bool = False
+    notes: str | None = None
+
+
+class _CheckOut(BaseModel):
+    employee_id: str
+    date: str | None = None
+    check_out: str | None = None
+    notes: str | None = None
+
+
+def _ensure_employee(db: Session, employee_id: str) -> Employee:
+    emp = db.query(Employee).filter(Employee.id == employee_id).first()
+    if not emp:
+        emp = db.query(Employee).filter(Employee.employee_id == employee_id).first()
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    return emp
+
+
+@router.post("/actions/check-in")
+def action_check_in(payload: _CheckIn, db: Session = Depends(get_db), current_user: Any = Depends(get_current_user)):
+    emp = _ensure_employee(db, payload.employee_id)
+    if _is_employee_role(db, current_user):
+        my_emp = _get_current_employee(db, current_user)
+        if my_emp and my_emp.id != emp.id:
+            raise HTTPException(status_code=403, detail="Cannot check in for another employee")
+    today = dt_date.today()
+    if payload.date:
+        today = dt_date.fromisoformat(payload.date[:10])
+    ci = _parse_hhmm(payload.check_in) or datetime.now().time().replace(microsecond=0)
+
+    att = db.query(Attendance).filter(Attendance.employee_id == emp.id, Attendance.date == today).first()
+
+    # If already checked in AND checked out for today, reject duplicate
+    if att and att.clock_in and att.clock_out:
+        raise HTTPException(status_code=400, detail="Already checked in and out for today. Only one check-in and one check-out per day is allowed.")
+
+    if att:
+        # Has check-in but no check-out — update existing
+        att.clock_in = ci
+        if payload.lunch_included:
+            att.auto_lunch_counted = True
+        if payload.notes:
+            att.notes = payload.notes
+        if not att.status:
+            att.status = "present"
+    else:
+        # No record for today — create new
+        att = Attendance(
+            employee_id=emp.id,
+            date=today,
+            clock_in=ci,
+            status="present",
+            auto_lunch_counted=bool(payload.lunch_included),
+            notes=payload.notes,
+        )
+        db.add(att)
+
+    db.commit()
+    db.refresh(att)
+    return success_response(data=_att_to_dict(att, emp))
+
+
+@router.post("/actions/check-out")
+def action_check_out(payload: _CheckOut, db: Session = Depends(get_db), current_user: Any = Depends(get_current_user)):
+    emp = _ensure_employee(db, payload.employee_id)
+    if _is_employee_role(db, current_user):
+        my_emp = _get_current_employee(db, current_user)
+        if my_emp and my_emp.id != emp.id:
+            raise HTTPException(status_code=403, detail="Cannot check out for another employee")
+    today = dt_date.today()
+    if payload.date:
+        today = dt_date.fromisoformat(payload.date[:10])
+    co = _parse_hhmm(payload.check_out) or datetime.now().time().replace(microsecond=0)
+
+    att = db.query(Attendance).filter(Attendance.employee_id == emp.id, Attendance.date == today).order_by(Attendance.created_at.desc()).first()
+
+    if not att or not att.clock_in:
+        raise HTTPException(status_code=400, detail="Must check in before checking out")
+
+    # Already checked out — reject duplicate
+    if att.clock_out:
+        raise HTTPException(status_code=400, detail="Already checked out for today. Only one check-in and one check-out per day is allowed.")
+
+    att.clock_out = co
+    if payload.notes:
+        att.notes = (att.notes or "") + ("; " if att.notes else "") + payload.notes
+
+    db.commit()
+    db.refresh(att)
+    return success_response(data=_att_to_dict(att, emp))
+
+
+# ---------------------------------------------------------------------------
+# CRUD routes (static paths first, then path-parameter routes)
+# ---------------------------------------------------------------------------
+
 @router.get("")
 def list_attendances(
     skip: int = 0,
@@ -93,19 +199,6 @@ def list_attendances(
 
     page = skip // limit + 1 if limit else 1
     return paginated_response(data=data, total=total, page=page, per_page=limit)
-
-
-@router.get("/{attendance_id}")
-def get_attendance(attendance_id: str, db: Session = Depends(get_db), current_user: Any = Depends(get_current_user)):
-    att = db.query(Attendance).filter(Attendance.id == attendance_id).first()
-    if not att:
-        raise HTTPException(status_code=404, detail="Attendance record not found")
-    if _is_employee_role(db, current_user):
-        emp = _get_current_employee(db, current_user)
-        if emp and att.employee_id != emp.id:
-            raise HTTPException(status_code=403, detail="Access denied")
-    emp = db.query(Employee).filter(Employee.id == att.employee_id).first()
-    return success_response(data=_att_to_dict(att, emp))
 
 
 @router.post("")
@@ -163,6 +256,23 @@ def create_attendance(data: AttendanceCreate, db: Session = Depends(get_db), cur
     db.add(att)
     db.commit()
     db.refresh(att)
+    emp = db.query(Employee).filter(Employee.id == att.employee_id).first()
+    return success_response(data=_att_to_dict(att, emp))
+
+
+# ---------------------------------------------------------------------------
+# Path-parameter routes (MUST come after /actions/* and static paths)
+# ---------------------------------------------------------------------------
+
+@router.get("/{attendance_id}")
+def get_attendance(attendance_id: str, db: Session = Depends(get_db), current_user: Any = Depends(get_current_user)):
+    att = db.query(Attendance).filter(Attendance.id == attendance_id).first()
+    if not att:
+        raise HTTPException(status_code=404, detail="Attendance record not found")
+    if _is_employee_role(db, current_user):
+        emp = _get_current_employee(db, current_user)
+        if emp and att.employee_id != emp.id:
+            raise HTTPException(status_code=403, detail="Access denied")
     emp = db.query(Employee).filter(Employee.id == att.employee_id).first()
     return success_response(data=_att_to_dict(att, emp))
 
@@ -231,105 +341,3 @@ def reject_attendance(attendance_id: str, db: Session = Depends(get_db), current
     service = AttendanceService(db)
     att = service.reject(attendance_id, current_user.id)
     return success_response(data={"id": att.id, "status": att.status})
-
-
-class _CheckIn(BaseModel):
-    employee_id: str
-    date: str | None = None
-    check_in: str | None = None
-    lunch_included: bool = False
-    notes: str | None = None
-
-
-class _CheckOut(BaseModel):
-    employee_id: str
-    date: str | None = None
-    check_out: str | None = None
-    notes: str | None = None
-
-
-def _ensure_employee(db: Session, employee_id: str) -> Employee:
-    emp = db.query(Employee).filter(Employee.id == employee_id).first()
-    if not emp:
-        emp = db.query(Employee).filter(Employee.employee_id == employee_id).first()
-    if not emp:
-        raise HTTPException(status_code=404, detail="Employee not found")
-    return emp
-
-
-@router.post("/actions/check-in")
-def action_check_in(payload: _CheckIn, db: Session = Depends(get_db), current_user: Any = Depends(get_current_user)):
-    emp = _ensure_employee(db, payload.employee_id)
-    if _is_employee_role(db, current_user):
-        my_emp = _get_current_employee(db, current_user)
-        if my_emp and my_emp.id != emp.id:
-            raise HTTPException(status_code=403, detail="Cannot check in for another employee")
-    today = dt_date.today()
-    if payload.date:
-        today = dt_date.fromisoformat(payload.date[:10])
-    ci = _parse_hhmm(payload.check_in) or datetime.now().time().replace(microsecond=0)
-    att = db.query(Attendance).filter(Attendance.employee_id == emp.id, Attendance.date == today).first()
-    if att and att.clock_in and att.clock_out:
-        att = Attendance(
-            employee_id=emp.id,
-            date=today,
-            clock_in=ci,
-            status="present",
-            auto_lunch_counted=bool(payload.lunch_included),
-            notes=payload.notes,
-        )
-        db.add(att)
-    elif att:
-        att.clock_in = ci
-        if payload.lunch_included:
-            att.auto_lunch_counted = True
-        if payload.notes:
-            att.notes = payload.notes
-        if not att.status:
-            att.status = "present"
-    else:
-        att = Attendance(
-            employee_id=emp.id,
-            date=today,
-            clock_in=ci,
-            status="present",
-            auto_lunch_counted=bool(payload.lunch_included),
-            notes=payload.notes,
-        )
-        db.add(att)
-    db.commit()
-    db.refresh(att)
-    return success_response(data=_att_to_dict(att, emp))
-
-
-@router.post("/actions/check-out")
-def action_check_out(payload: _CheckOut, db: Session = Depends(get_db), current_user: Any = Depends(get_current_user)):
-    emp = _ensure_employee(db, payload.employee_id)
-    if _is_employee_role(db, current_user):
-        my_emp = _get_current_employee(db, current_user)
-        if my_emp and my_emp.id != emp.id:
-            raise HTTPException(status_code=403, detail="Cannot check out for another employee")
-    today = dt_date.today()
-    if payload.date:
-        today = dt_date.fromisoformat(payload.date[:10])
-    co = _parse_hhmm(payload.check_out) or datetime.now().time().replace(microsecond=0)
-    att = db.query(Attendance).filter(Attendance.employee_id == emp.id, Attendance.date == today).order_by(Attendance.created_at.desc()).first()
-    if not att or not att.clock_in:
-        raise HTTPException(status_code=400, detail="Must check in before checking out")
-    if att.clock_out:
-        att = Attendance(
-            employee_id=emp.id,
-            date=today,
-            clock_in=datetime.now().time().replace(microsecond=0),
-            clock_out=co,
-            status="present",
-            notes=payload.notes,
-        )
-        db.add(att)
-    else:
-        att.clock_out = co
-        if payload.notes:
-            att.notes = (att.notes or "") + ("; " if att.notes else "") + payload.notes
-    db.commit()
-    db.refresh(att)
-    return success_response(data=_att_to_dict(att, emp))

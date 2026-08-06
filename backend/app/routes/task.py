@@ -66,11 +66,17 @@ def _get_current_employee(db: Session, current_user: Any) -> Employee | None:
 def list_tasks(skip: int = 0, limit: int = 100, db: Session = Depends(get_db), current_user: Any = Depends(get_current_user)):
     service = TaskService(db)
     if _is_employee_role(db, current_user):
-        # assigned_to stores user_id, so filter by the current user's id
-        tasks = db.query(Task).filter(Task.assigned_to == current_user.id, Task.deleted_at.is_(None)).offset(skip).limit(limit).all()
+        # assigned_to stores employee.id — look up current employee and filter
+        emp = _get_current_employee(db, current_user)
+        if emp:
+            base_query = db.query(Task).filter(Task.assigned_to == emp.id, Task.deleted_at.is_(None))
+        else:
+            base_query = db.query(Task).filter(Task.deleted_at.is_(None))  # fallback: empty results
+        total = base_query.count()
+        tasks = base_query.offset(skip).limit(limit).all()
     else:
         tasks = service.get_all(skip=skip, limit=limit)
-    total = db.query(Task).filter(Task.deleted_at.is_(None)).count()
+        total = db.query(Task).filter(Task.deleted_at.is_(None)).count()
     data = [_enrich_task(t, db) for t in tasks]
     page = skip // limit + 1 if limit else 1
     return paginated_response(data=data, total=total, page=page, per_page=limit)

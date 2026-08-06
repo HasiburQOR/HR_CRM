@@ -14,8 +14,9 @@ router = APIRouter(prefix="/reminders", tags=["reminders"])
 
 def _normalize_payload(raw: dict) -> dict:
     payload = dict(raw)
-    if payload.get("message") and not payload.get("description"):
-        payload["description"] = payload["message"]
+    # Map "note" to "description" for DB storage
+    if payload.get("note") and not payload.get("description"):
+        payload["description"] = payload["note"]
     raw_reminder_time = payload.get("reminder_time")
     dt_str = payload.get("reminder_datetime") or raw_reminder_time
     dt_date = None
@@ -73,7 +74,10 @@ def _normalize_payload(raw: dict) -> dict:
         payload["reminder_date"] = date.today()
     if parsed_dt and not payload.get("remind_at"):
         payload["remind_at"] = parsed_dt
-    for extra in ("reminder_datetime", "message"):
+    # Default status to "ongoing" if not provided
+    if not payload.get("status"):
+        payload["status"] = "ongoing"
+    for extra in ("reminder_datetime", "note"):
         if extra in payload:
             del payload[extra]
     return payload
@@ -107,13 +111,14 @@ def _serialize(r: Reminder) -> dict:
         "user_id": r.user_id,
         "title": r.title,
         "description": r.description or "",
-        "message": r.description or "",
+        "note": r.description or "",
         "reminder_date": date_str,
         "reminder_time": time_str,
         "reminder_datetime": dt_combined,
         "remind_at": r.remind_at.isoformat() if r.remind_at else None,
         "is_sent": bool(r.is_sent),
         "is_completed": bool(r.is_completed),
+        "status": r.status or "ongoing",
         "created_at": r.created_at.isoformat() if r.created_at else None,
         "updated_at": r.updated_at.isoformat() if r.updated_at else None,
     }

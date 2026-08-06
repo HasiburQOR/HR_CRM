@@ -8,8 +8,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { useToast } from "@/components/ui/use-toast"
 
 export default function Login() {
-  const [loginMethod, setLoginMethod] = useState<"username" | "employee_id">("username")
-  const [identifier, setIdentifier] = useState("")
+  const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
   const [loading, setLoading] = useState(false)
   const { login, isAuthenticated } = useAuth()
@@ -29,15 +28,12 @@ export default function Login() {
     e.preventDefault()
     setLoading(true)
     try {
-      if (loginMethod === "employee_id") {
-        await login({ employee_id: identifier, password })
-      } else {
-        await login({ username: identifier, password })
-      }
+      await login({ username, password })
       toast({ title: "Login successful", description: "Welcome to HR CRM", variant: "success" })
       navigate(from, { replace: true })
     } catch (err: any) {
-      const msg = err?.response?.data?.detail || err?.message || "Invalid credentials"
+      const detail = err?.response?.data?.detail
+      const msg = typeof detail === "string" ? detail : "Invalid username or password"
       toast({ title: "Login failed", description: msg, variant: "destructive" })
     } finally {
       setLoading(false)
@@ -54,36 +50,16 @@ export default function Login() {
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="identifier">
-                {loginMethod === "employee_id" ? "Employee ID" : "Username or Email"}
-              </Label>
+              <Label htmlFor="username">Username</Label>
               <Input
-                id="identifier"
+                id="username"
                 type="text"
-                autoComplete={loginMethod === "employee_id" ? "off" : "username"}
-                value={identifier}
-                onChange={(e) => setIdentifier(e.target.value)}
-                placeholder={loginMethod === "employee_id" ? "EMP001" : "admin"}
+                autoComplete="username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="admin"
                 required
               />
-            </div>
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                variant={loginMethod === "username" ? "default" : "outline"}
-                className="flex-1"
-                onClick={() => setLoginMethod("username")}
-              >
-                Username / Email
-              </Button>
-              <Button
-                type="button"
-                variant={loginMethod === "employee_id" ? "default" : "outline"}
-                className="flex-1"
-                onClick={() => setLoginMethod("employee_id")}
-              >
-                Employee ID
-              </Button>
             </div>
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>

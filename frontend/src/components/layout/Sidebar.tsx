@@ -14,6 +14,7 @@ import {
   History,
   Receipt,
   Package,
+  ClipboardList,
   LogOut,
 } from "lucide-react"
 import { useAuth } from "@/contexts/AuthContext"
@@ -32,6 +33,7 @@ const allNavItems = [
   { to: "/reminders", label: "Reminders", icon: Bell },
   { to: "/expenses", label: "Expenses", icon: Receipt },
   { to: "/inventory", label: "Inventory", icon: Package },
+  { to: "/requisitions", label: "Requisitions", icon: ClipboardList },
   { to: "/reports", label: "Reports", icon: FileBarChart },
   { to: "/activity-logs", label: "Activity Logs", icon: History },
   { to: "/users", label: "Users", icon: UserCheck },

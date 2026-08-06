@@ -104,7 +104,7 @@ export default function Users() {
           toast({ title: "Password required for new users", variant: "destructive" })
           return
         }
-        const { role, employee, ...rest } = form
+        const { employee, ...rest } = form
         await userService.create(rest)
         toast({ title: "Created", variant: "success" })
       }

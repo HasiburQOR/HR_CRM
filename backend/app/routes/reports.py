@@ -3,7 +3,7 @@ from datetime import date, datetime
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import extract
+from sqlalchemy import extract, String
 import io
 import openpyxl
 
@@ -21,7 +21,7 @@ router = APIRouter(prefix="/reports", tags=["reports"])
 MONTH_MAP = {
     "january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
     "july": 7, "august": 8, "september": 9, "october": 10, "november": 11, "december": 12,
-    "jan": 1, "feb": 2, "mar": 3, "apr": 4, "jun": 6, "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+    "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6, "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
 }
 
 
@@ -194,7 +194,13 @@ def report_salary(
 ):
     q = db.query(Salary, Employee).outerjoin(Employee, Salary.employee_id == Employee.id)
 
-    if period == "month":
+    if period == "day":
+        # For day filter on salary, match by payment_date or created_at
+        if date:
+            q = q.filter((Salary.payment_date == str(date)) | (Salary.created_at.cast(String).like(f"{date}%")))
+        elif period_value:
+            q = q.filter((Salary.payment_date == str(period_value)) | (Salary.created_at.cast(String).like(f"{period_value}%")))
+    elif period == "month":
         if period_value and period_value.lower() in MONTH_MAP:
             m_num = MONTH_MAP[period_value.lower()]
             q = q.filter(Salary.month == datetime(2000, m_num, 1).strftime("%b").lower())
@@ -226,12 +232,14 @@ def report_salary(
             "Employee": f"{e.first_name} {e.last_name}" if e else s.employee_id,
             "Month": s.month,
             "Year": s.year,
+            "Gross Salary (BDT)": getattr(s, "gross_salary", 0) or (s.basic_salary or 0) + (s.allowances or 0),
             "Basic Salary (BDT)": s.basic_salary,
             "Allowances (BDT)": s.allowances,
             "Deductions (BDT)": s.deductions,
             "Net Salary (BDT)": s.net_salary,
             "Payment Date": s.payment_date or "",
             "Status": s.status,
+            "Notes": getattr(s, "notes", "") or "",
         }
         for s, e in records
     ]
@@ -467,6 +475,7 @@ def report_employee_individual(
         salary_rows.append({
             "Month": s.month,
             "Year": s.year,
+            "Gross (BDT)": getattr(s, "gross_salary", 0) or (s.basic_salary or 0) + (s.allowances or 0),
             "Basic (BDT)": s.basic_salary,
             "Allowances (BDT)": s.allowances,
             "Deductions (BDT)": s.deductions,

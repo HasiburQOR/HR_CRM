@@ -82,9 +82,9 @@ def create_user(data: UserCreate, employee_id: str | None = None, db: Session = 
     if existing:
         raise HTTPException(status_code=400, detail="Username already exists")
 
-    role_id = None
-    is_super = False
-    if hasattr(data, 'role') and data.role:
+    role_id = data.role_id
+    is_super = data.is_superuser
+    if data.role:
         if data.role == 'admin':
             is_super = True
         else:
@@ -97,7 +97,7 @@ def create_user(data: UserCreate, employee_id: str | None = None, db: Session = 
         email=data.email,
         hashed_password=hash_password(data.password),
         full_name=data.full_name or data.username,
-        is_active=True,
+        is_active=data.is_active,
         is_superuser=is_super,
         role_id=role_id,
     )
@@ -122,7 +122,15 @@ def update_user(user_id: str, data: UserUpdate, employee_id: str | None = None, 
             u.username = data.username
         if data.email:
             u.email = data.email
-        if hasattr(data, 'password') and data.password:
+        if data.full_name is not None:
+            u.full_name = data.full_name
+        if data.is_active is not None:
+            u.is_active = data.is_active
+        if data.is_superuser is not None:
+            u.is_superuser = data.is_superuser
+        if data.role_id is not None:
+            u.role_id = data.role_id
+        if data.password:
             u.hashed_password = hash_password(data.password)
         db.commit()
         db.refresh(u)

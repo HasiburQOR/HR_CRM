@@ -14,10 +14,40 @@ router = APIRouter(prefix="/salaries", tags=["salaries"])
 
 
 def _calc_net(data_dict):
+    gross = float(data_dict.get("gross_salary") or 0)
     basic = float(data_dict.get("basic_salary") or 0)
     allow = float(data_dict.get("allowances") or 0)
     deduct = float(data_dict.get("deductions") or 0)
+    # If gross is set, use gross - deductions; otherwise basic + allow - deduct
+    if gross > 0:
+        return round(gross - deduct, 2)
     return round(basic + allow - deduct, 2)
+
+
+def _salary_dict(sal, emp):
+    return {
+        "id": sal.id,
+        "employee_id": sal.employee_id,
+        "employee_name": f"{emp.first_name} {emp.last_name}" if emp else "Unknown",
+        "month": sal.month,
+        "year": sal.year,
+        "gross_salary": getattr(sal, "gross_salary", 0) or 0,
+        "basic_salary": sal.basic_salary,
+        "allowances": sal.allowances,
+        "deductions": sal.deductions,
+        "net_salary": sal.net_salary or _calc_net({
+            "gross_salary": getattr(sal, "gross_salary", 0),
+            "basic_salary": sal.basic_salary,
+            "allowances": sal.allowances,
+            "deductions": sal.deductions,
+        }),
+        "payment_date": sal.payment_date or "",
+        "status": sal.status,
+        "approved_by": sal.approved_by,
+        "notes": getattr(sal, "notes", "") or "",
+        "created_at": sal.created_at.isoformat() if sal.created_at else None,
+        "updated_at": sal.updated_at.isoformat() if sal.updated_at else None,
+    }
 
 
 @router.get("")
@@ -44,22 +74,7 @@ def list_salaries(
 
     data = []
     for sal, emp in results:
-        data.append({
-            "id": sal.id,
-            "employee_id": sal.employee_id,
-            "employee_name": f"{emp.first_name} {emp.last_name}" if emp else "Unknown",
-            "month": sal.month,
-            "year": sal.year,
-            "basic_salary": sal.basic_salary,
-            "allowances": sal.allowances,
-            "deductions": sal.deductions,
-            "net_salary": sal.net_salary or _calc_net({"basic_salary": sal.basic_salary, "allowances": sal.allowances, "deductions": sal.deductions}),
-            "payment_date": sal.payment_date or "",
-            "status": sal.status,
-            "approved_by": sal.approved_by,
-            "created_at": sal.created_at.isoformat() if sal.created_at else None,
-            "updated_at": sal.updated_at.isoformat() if sal.updated_at else None,
-        })
+        data.append(_salary_dict(sal, emp))
 
     page = skip // limit + 1 if limit else 1
     return paginated_response(data=data, total=total, page=page, per_page=limit)
@@ -71,23 +86,7 @@ def get_salary(salary_id: str, db: Session = Depends(get_db), current_user: Any 
     if not sal:
         raise HTTPException(status_code=404, detail="Salary record not found")
     emp = db.query(Employee).filter(Employee.id == sal.employee_id).first()
-    data = {
-        "id": sal.id,
-        "employee_id": sal.employee_id,
-        "employee_name": f"{emp.first_name} {emp.last_name}" if emp else "Unknown",
-        "month": sal.month,
-        "year": sal.year,
-        "basic_salary": sal.basic_salary,
-        "allowances": sal.allowances,
-        "deductions": sal.deductions,
-        "net_salary": sal.net_salary or _calc_net({"basic_salary": sal.basic_salary, "allowances": sal.allowances, "deductions": sal.deductions}),
-        "payment_date": sal.payment_date or "",
-        "status": sal.status,
-        "approved_by": sal.approved_by,
-        "created_at": sal.created_at.isoformat() if sal.created_at else None,
-        "updated_at": sal.updated_at.isoformat() if sal.updated_at else None,
-    }
-    return success_response(data=data)
+    return success_response(data=_salary_dict(sal, emp))
 
 
 @router.post("")
@@ -99,24 +98,7 @@ def create_salary(data: SalaryCreate, db: Session = Depends(get_db), current_use
     db.add(sal)
     db.commit()
     db.refresh(sal)
-    emp = db.query(Employee).filter(Employee.id == sal.employee_id).first()
-    result = {
-        "id": sal.id,
-        "employee_id": sal.employee_id,
-        "employee_name": f"{emp.first_name} {emp.last_name}" if emp else "Unknown",
-        "month": sal.month,
-        "year": sal.year,
-        "basic_salary": sal.basic_salary,
-        "allowances": sal.allowances,
-        "deductions": sal.deductions,
-        "net_salary": sal.net_salary,
-        "payment_date": sal.payment_date or "",
-        "status": sal.status,
-        "approved_by": sal.approved_by,
-        "created_at": sal.created_at.isoformat() if sal.created_at else None,
-        "updated_at": sal.updated_at.isoformat() if sal.updated_at else None,
-    }
-    return success_response(data=result)
+    return success_response(data=_salary_dict(sal, db.query(Employee).filter(Employee.id == sal.employee_id).first()))
 
 
 @router.put("/{salary_id}")
@@ -135,26 +117,16 @@ def update_salary(salary_id: str, data: SalaryUpdate, db: Session = Depends(get_
             "allowances": sal.allowances,
             "deductions": sal.deductions,
         })
+    if "gross_salary" in update_data:
+        sal.net_salary = _calc_net({
+            "gross_salary": sal.gross_salary,
+            "basic_salary": sal.basic_salary,
+            "allowances": sal.allowances,
+            "deductions": sal.deductions,
+        })
     db.commit()
     db.refresh(sal)
-    emp = db.query(Employee).filter(Employee.id == sal.employee_id).first()
-    result = {
-        "id": sal.id,
-        "employee_id": sal.employee_id,
-        "employee_name": f"{emp.first_name} {emp.last_name}" if emp else "Unknown",
-        "month": sal.month,
-        "year": sal.year,
-        "basic_salary": sal.basic_salary,
-        "allowances": sal.allowances,
-        "deductions": sal.deductions,
-        "net_salary": sal.net_salary,
-        "payment_date": sal.payment_date or "",
-        "status": sal.status,
-        "approved_by": sal.approved_by,
-        "created_at": sal.created_at.isoformat() if sal.created_at else None,
-        "updated_at": sal.updated_at.isoformat() if sal.updated_at else None,
-    }
-    return success_response(data=result)
+    return success_response(data=_salary_dict(sal, db.query(Employee).filter(Employee.id == sal.employee_id).first()))
 
 
 @router.post("/{salary_id}/approve")
