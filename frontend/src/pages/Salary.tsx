@@ -94,10 +94,19 @@ export default function Salary() {
   const grossSalary = Number(form.gross_salary || 0)
   const basicSalary = useMemo(() => Math.round(grossSalary * 0.6), [grossSalary])
   const allowances = useMemo(() => Math.round(grossSalary * 0.4), [grossSalary])
+  const workingDays = Number(form.working_days || 0)
+  const daysAttended = Number(form.days_attended || 0)
   const deductions = Number(form.deductions || 0)
-  const netSalary = grossSalary - deductions
+  const perDayRate = workingDays > 0 ? Math.round(grossSalary / workingDays) : 0
+  const netSalary = workingDays > 0 && daysAttended > 0
+    ? Math.max(Math.round((grossSalary / workingDays) * daysAttended - deductions), 0)
+    : grossSalary - deductions
 
   function handleGrossChange(value: string) {
+    if (value === "") {
+      setForm({ ...form, gross_salary: undefined, basic_salary: undefined, allowances: undefined })
+      return
+    }
     const gross = Number(value) || 0
     setForm({
       ...form,
@@ -116,14 +125,24 @@ export default function Salary() {
       const gross = Number(form.gross_salary || 0)
       const basic = Math.round(gross * 0.6)
       const allow = Math.round(gross * 0.4)
+      const wd = Number(form.working_days || 0)
+      const da = Number(form.days_attended || 0)
       const deduct = Number(form.deductions || 0)
-      const net = gross - deduct
+      let net: number
+      if (wd > 0 && da > 0 && gross > 0) {
+        const perDay = gross / wd
+        net = Math.max(Math.round(perDay * da - deduct), 0)
+      } else {
+        net = gross - deduct
+      }
       if (editingId) {
         await salaryService.update(editingId, {
           ...form,
           gross_salary: gross,
           basic_salary: basic,
           allowances: allow,
+          working_days: wd,
+          days_attended: da,
           deductions: deduct,
           net_salary: net,
         })
@@ -134,6 +153,8 @@ export default function Salary() {
           gross_salary: gross,
           basic_salary: basic,
           allowances: allow,
+          working_days: wd,
+          days_attended: da,
           deductions: deduct,
           net_salary: net,
         })
@@ -254,6 +275,46 @@ export default function Salary() {
                 </div>
               </div>
 
+              {/* Working Days & Days Attended */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Working Days</Label>
+                  <Input
+                    type="number"
+                    placeholder="e.g. 26"
+                    value={form.working_days || ""}
+                    onChange={(e) => setForm({ ...form, working_days: Number(e.target.value) || undefined })}
+                    className="font-mono"
+                  />
+                  <p className="text-xs text-muted-foreground">Total working days in the month</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Days Attended</Label>
+                  <Input
+                    type="number"
+                    placeholder="e.g. 22"
+                    value={form.days_attended || ""}
+                    onChange={(e) => setForm({ ...form, days_attended: Number(e.target.value) || undefined })}
+                    className="font-mono"
+                  />
+                  <p className="text-xs text-muted-foreground">Days employee gave attendance</p>
+                </div>
+              </div>
+
+              {/* Per Day Rate (computed) */}
+              {workingDays > 0 && grossSalary > 0 && (
+                <div className="space-y-2">
+                  <Label>Per Day Rate</Label>
+                  <Input
+                    type="number"
+                    value={perDayRate || ""}
+                    readOnly
+                    className="bg-muted cursor-not-allowed font-mono font-semibold text-purple-600"
+                  />
+                  <p className="text-xs text-muted-foreground">Gross salary ÷ Working days = {formatCurrency(perDayRate)}</p>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Deductions</Label>
@@ -290,6 +351,22 @@ export default function Salary() {
                     <span className="text-muted-foreground">  Allowances (40%)</span>
                     <span className="font-mono text-emerald-600">+{formatCurrency(allowances)}</span>
                   </div>
+                  {workingDays > 0 && (
+                    <>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">  Working Days</span>
+                        <span className="font-mono">{workingDays}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">  Days Attended</span>
+                        <span className="font-mono">{daysAttended || 0}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">  Per Day Rate</span>
+                        <span className="font-mono text-purple-600">{formatCurrency(perDayRate)}</span>
+                      </div>
+                    </>
+                  )}
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">  Deductions</span>
                     <span className="font-mono text-rose-600">-{formatCurrency(deductions)}</span>
@@ -298,6 +375,11 @@ export default function Salary() {
                     <span>Net Salary</span>
                     <span className="font-mono text-blue-600">{formatCurrency(netSalary)}</span>
                   </div>
+                  {workingDays > 0 && daysAttended > 0 && (
+                    <p className="text-xs text-muted-foreground pt-1">
+                      Net based on {daysAttended} attended days out of {workingDays} working days
+                    </p>
+                  )}
                 </div>
               )}
 
