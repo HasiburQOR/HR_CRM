@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from "react"
-import { Plus, CheckCircle, Banknote } from "lucide-react"
+import { Plus, CheckCircle, Banknote, Pencil, Trash2 } from "lucide-react"
 import { salaryService } from "@/services/salary.service"
 import type { Salary } from "@/types"
 import { Button } from "@/components/ui/button"
@@ -18,7 +18,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog"
 import {
   Select,
@@ -27,6 +26,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
@@ -48,6 +57,8 @@ export default function Salary() {
   const [rows, setRows] = useState<Salary[]>([])
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [deleteId, setDeleteId] = useState<string | null>(null)
   const [form, setForm] = useState<Partial<Salary>>({})
   const { toast } = useToast()
 
@@ -68,7 +79,14 @@ export default function Salary() {
   }
 
   function openCreate() {
+    setEditingId(null)
     setForm({})
+    setDialogOpen(true)
+  }
+
+  function openEdit(r: Salary) {
+    setEditingId(r.id)
+    setForm({ ...r })
     setDialogOpen(true)
   }
 
@@ -90,7 +108,7 @@ export default function Salary() {
   }
 
   function handleDeductionsChange(value: string) {
-    setForm({ ...form, deductions: Number(value) || 0 })
+    setForm({ ...form, deductions: value === "" ? undefined : Number(value) || 0 })
   }
 
   async function submitForm() {
@@ -100,19 +118,43 @@ export default function Salary() {
       const allow = Math.round(gross * 0.4)
       const deduct = Number(form.deductions || 0)
       const net = gross - deduct
-      await salaryService.create({
-        ...form,
-        gross_salary: gross,
-        basic_salary: basic,
-        allowances: allow,
-        deductions: deduct,
-        net_salary: net,
-      })
-      toast({ title: "Created", variant: "success" })
+      if (editingId) {
+        await salaryService.update(editingId, {
+          ...form,
+          gross_salary: gross,
+          basic_salary: basic,
+          allowances: allow,
+          deductions: deduct,
+          net_salary: net,
+        })
+        toast({ title: "Updated", variant: "success" })
+      } else {
+        await salaryService.create({
+          ...form,
+          gross_salary: gross,
+          basic_salary: basic,
+          allowances: allow,
+          deductions: deduct,
+          net_salary: net,
+        })
+        toast({ title: "Created", variant: "success" })
+      }
       setDialogOpen(false)
       load()
     } catch (e: any) {
       toast({ title: "Error", description: e?.message, variant: "destructive" })
+    }
+  }
+
+  async function doDelete(id: string) {
+    try {
+      await salaryService.delete(id)
+      toast({ title: "Deleted", variant: "success" })
+      load()
+    } catch (e: any) {
+      toast({ title: "Error", description: e?.message, variant: "destructive" })
+    } finally {
+      setDeleteId(null)
     }
   }
 
@@ -143,12 +185,13 @@ export default function Salary() {
           <h2 className="text-2xl font-bold tracking-tight">Salary Management</h2>
           <p className="text-muted-foreground">Payroll, approvals, and payments</p>
         </div>
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger asChild>
-            <Button onClick={openCreate}><Plus className="mr-2 h-4 w-4" /> Add Salary Record</Button>
-          </DialogTrigger>
+        <Button onClick={openCreate}><Plus className="mr-2 h-4 w-4" /> Add Salary Record</Button>
+      </div>
+
+      {/* Salary Create/Edit Dialog */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogContent>
-            <DialogHeader><DialogTitle>Salary Record</DialogTitle></DialogHeader>
+            <DialogHeader><DialogTitle>{editingId ? "Edit Salary Record" : "New Salary Record"}</DialogTitle></DialogHeader>
             <div className="space-y-4 py-4 max-h-[70vh] overflow-auto">
               <div className="space-y-2">
                 <Label>Employee</Label>
@@ -216,7 +259,7 @@ export default function Salary() {
                   <Label>Deductions</Label>
                   <Input
                     type="number"
-                    value={form.deductions ?? ""}
+                    value={form.deductions || ""}
                     onChange={(e) => handleDeductionsChange(e.target.value)}
                     className="font-mono text-rose-600"
                   />
@@ -269,7 +312,6 @@ export default function Salary() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
-      </div>
 
       <Card>
         <CardHeader className="pb-2"><CardTitle className="text-lg">Records ({rows.length})</CardTitle></CardHeader>
@@ -307,6 +349,9 @@ export default function Salary() {
                     <TableCell><Badge variant={statusVariant(r.status || "pending")} className="capitalize">{r.status || "pending"}</Badge></TableCell>
                     <TableCell className="text-right">
                       <div className="inline-flex gap-1 justify-end">
+                        <Button size="sm" variant="ghost" onClick={() => openEdit(r)} title="Edit">
+                          <Pencil className="h-4 w-4" />
+                        </Button>
                         {r.status === "pending" && (
                           <Button size="sm" variant="ghost" onClick={() => approve(r.id)} title="Approve">
                             <CheckCircle className="h-4 w-4 text-emerald-600" />
@@ -317,6 +362,22 @@ export default function Salary() {
                             <Banknote className="h-4 w-4 text-sky-600" />
                           </Button>
                         )}
+                        <AlertDialog open={deleteId === r.id} onOpenChange={(o) => !o && setDeleteId(null)}>
+                          <AlertDialogTrigger asChild>
+                            <Button size="sm" variant="ghost" onClick={() => setDeleteId(r.id)} title="Delete">
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Delete salary record?</AlertDialogTitle>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction onClick={() => doDelete(r.id)} className="bg-destructive hover:bg-destructive/90">Delete</AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
                       </div>
                     </TableCell>
                   </TableRow>
