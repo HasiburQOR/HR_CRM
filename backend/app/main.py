@@ -125,6 +125,12 @@ def _run_sqlite_migrations() -> None:
             _add_column_if_missing(conn, "attendances", "approved_by", "VARCHAR(36)")
             _add_column_if_missing(conn, "attendances", "rejected_by", "VARCHAR(36)")
 
+            # Requisition expense approval workflow
+            _add_column_if_missing(conn, "requisition_expenses", "status", "VARCHAR(20) DEFAULT 'pending'")
+            _add_column_if_missing(conn, "requisition_expenses", "approved_by", "VARCHAR(36)")
+            _add_column_if_missing(conn, "requisition_expenses", "rejected_by", "VARCHAR(36)")
+            _add_column_if_missing(conn, "requisition_expenses", "updated_at", "DATETIME")
+
             _add_column_if_missing(conn, "salaries", "basic_salary", "FLOAT DEFAULT 0.0")
             _add_column_if_missing(conn, "salaries", "month", "VARCHAR(20) DEFAULT ''")
             _add_column_if_missing(conn, "salaries", "year", "INTEGER DEFAULT 2026")
@@ -162,10 +168,27 @@ def _run_postgres_migrations() -> None:
     """Run one-time idempotent migrations for PostgreSQL."""
     if _is_sqlite():
         return
-    try:
-        with engine.connect() as conn:
-            # Migrate tasks.assigned_to FK from users.id → employees.id
-            # Check current FK target table
+    with engine.connect() as conn:
+        # Requisition expense approval workflow (must run first & commit independently)
+        try:
+            _add_column_if_missing(conn, "requisition_expenses", "status", "VARCHAR(20) DEFAULT 'pending'")
+            _add_column_if_missing(conn, "requisition_expenses", "approved_by", "VARCHAR(36)")
+            _add_column_if_missing(conn, "requisition_expenses", "rejected_by", "VARCHAR(36)")
+            _add_column_if_missing(conn, "requisition_expenses", "updated_at", "TIMESTAMP")
+            conn.commit()
+        except Exception:
+            pass
+
+        # Add salary columns: working_days and days_attended
+        try:
+            _add_column_if_missing(conn, "salaries", "working_days", "INTEGER DEFAULT 0")
+            _add_column_if_missing(conn, "salaries", "days_attended", "INTEGER DEFAULT 0")
+            conn.commit()
+        except Exception:
+            pass
+
+        # Migrate tasks.assigned_to FK from users.id → employees.id
+        try:
             fk_rows = conn.execute(text("""
                 SELECT tc.constraint_name, ccu.table_name AS foreign_table
                 FROM information_schema.table_constraints AS tc
@@ -200,13 +223,8 @@ def _run_postgres_migrations() -> None:
                     """))
                     conn.commit()
                     break
-
-            # Add salary columns: working_days and days_attended
-            _add_column_if_missing(conn, "salaries", "working_days", "INTEGER DEFAULT 0")
-            _add_column_if_missing(conn, "salaries", "days_attended", "INTEGER DEFAULT 0")
-            conn.commit()
-    except Exception:
-        pass
+        except Exception:
+            pass
 
 
 

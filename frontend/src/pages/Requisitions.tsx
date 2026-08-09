@@ -4,10 +4,14 @@ import {
   Plus,
   Download,
   Eye,
+  Pencil,
   Lock,
+  Unlock,
+  Trash2,
   Loader2,
   Search,
   Inbox,
+  Paperclip,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -26,6 +30,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  DialogDescription,
 } from "@/components/ui/dialog"
 import {
   Select,
@@ -42,22 +47,37 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { Separator } from "@/components/ui/separator"
 import { useToast } from "@/components/ui/useToast"
+import { useAuth } from "@/contexts/AuthContext"
 import { requisitionService } from "@/services/requisition.service"
-import type { Requisition } from "@/types"
+import type { Requisition, RequisitionExpense } from "@/types"
 
 export default function Requisitions() {
   const navigate = useNavigate()
   const { toast } = useToast()
+  const { user } = useAuth()
+  const isAdmin =
+    !!user?.is_superuser ||
+    ["admin", "ceo", "hr"].includes((user?.role || "").toLowerCase())
+
   const [data, setData] = useState<Requisition[]>([])
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
   const [title, setTitle] = useState("")
   const [creating, setCreating] = useState(false)
   const [closingId, setClosingId] = useState<string | null>(null)
+  const [reopeningId, setReopeningId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [deleteConfirm, setDeleteConfirm] = useState<Requisition | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState<string>("all")
+
+  // View popup state
+  const [viewing, setViewing] = useState<Requisition | null>(null)
+  const [viewingLoading, setViewingLoading] = useState(false)
+  const [receiptPreview, setReceiptPreview] = useState<string | null>(null)
 
   const fetchAll = async () => {
     setLoading(true)
@@ -112,6 +132,49 @@ export default function Requisitions() {
     }
   }
 
+  const handleReopen = async (id: string) => {
+    setReopeningId(id)
+    try {
+      await requisitionService.reopen(id)
+      toast({ title: "Requisition reopened — now editable" })
+      fetchAll()
+    } catch {
+      toast({ title: "Failed to reopen requisition", variant: "destructive" })
+    } finally {
+      setReopeningId(null)
+    }
+  }
+
+  const handleView = async (id: string) => {
+    setViewingLoading(true)
+    setViewing(null)
+    try {
+      const full = await requisitionService.getById(id)
+      setViewing(full)
+    } catch {
+      toast({ title: "Failed to load requisition details", variant: "destructive" })
+    } finally {
+      setViewingLoading(false)
+    }
+  }
+
+  const statusBadge = (status?: string | null) => {
+    const s = (status || "pending").toLowerCase()
+    const cls =
+      s === "approved"
+        ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-100"
+        : s === "rejected"
+          ? "bg-red-100 text-red-800 hover:bg-red-100"
+          : "bg-amber-100 text-amber-800 hover:bg-amber-100"
+    return (
+      <Badge variant="secondary" className={cls}>
+        {s}
+      </Badge>
+    )
+  }
+
+  const isPdf = (url: string) => url.toLowerCase().endsWith(".pdf")
+
   const handleDownloadSingle = async (id: string, reqTitle: string) => {
     try {
       const blob = await requisitionService.downloadSingle(id)
@@ -138,6 +201,27 @@ export default function Requisitions() {
       URL.revokeObjectURL(url)
     } catch {
       toast({ title: "Bulk download failed", variant: "destructive" })
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!deleteConfirm) return
+    const id = deleteConfirm.id
+    setDeletingId(id)
+    try {
+      await requisitionService.delete(id)
+      toast({ title: "Requisition deleted" })
+      setSelected((prev) => {
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
+      fetchAll()
+    } catch {
+      toast({ title: "Failed to delete requisition", variant: "destructive" })
+    } finally {
+      setDeletingId(null)
+      setDeleteConfirm(null)
     }
   }
 
@@ -304,7 +388,15 @@ export default function Requisitions() {
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => navigate(`/requisitions/${r.id}`)}
-                                title="View"
+                                title="Edit Requisition"
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleView(r.id)}
+                                title="View Requisition"
                               >
                                 <Eye className="h-4 w-4" />
                               </Button>
@@ -318,7 +410,7 @@ export default function Requisitions() {
                               >
                                 <Download className="h-4 w-4" />
                               </Button>
-                              {r.status === "open" && (
+                              {r.status === "open" ? (
                                 <Button
                                   variant="ghost"
                                   size="sm"
@@ -331,6 +423,31 @@ export default function Requisitions() {
                                   ) : (
                                     <Lock className="h-4 w-4" />
                                   )}
+                                </Button>
+                              ) : (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  disabled={reopeningId === r.id}
+                                  onClick={() => handleReopen(r.id)}
+                                  title="Reopen Requisition"
+                                >
+                                  {reopeningId === r.id ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <Unlock className="h-4 w-4" />
+                                  )}
+                                </Button>
+                              )}
+                              {isAdmin && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                  onClick={() => setDeleteConfirm(r)}
+                                  title="Delete Requisition"
+                                >
+                                  <Trash2 className="h-4 w-4" />
                                 </Button>
                               )}
                             </div>
@@ -369,6 +486,181 @@ export default function Requisitions() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {/* View Dialog (read-only) */}
+      <Dialog open={!!viewing || viewingLoading} onOpenChange={(open) => !open && setViewing(null)}>
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3 flex-wrap">
+              {viewing?.title ?? "Loading…"}
+              {viewing && (
+                <Badge
+                  variant="secondary"
+                  className={
+                    viewing.status === "open"
+                      ? "bg-blue-100 text-blue-800 hover:bg-blue-100"
+                      : "bg-gray-100 text-gray-800 hover:bg-gray-100"
+                  }
+                >
+                  {viewing.status}
+                </Badge>
+              )}
+            </DialogTitle>
+            <DialogDescription>
+              Read-only overview of this requisition and its expenses.
+            </DialogDescription>
+          </DialogHeader>
+          {viewingLoading ? (
+            <div className="flex justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : viewing ? (
+            <>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground uppercase">Created</p>
+                  <p className="font-semibold">{fmtDate(viewing.created_at)}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground uppercase">Closed</p>
+                  <p className="font-semibold">{fmtDate(viewing.closed_at)}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground uppercase">Duration</p>
+                  <p className="font-semibold">
+                    {viewing.duration_days != null
+                      ? `${viewing.duration_days} day${viewing.duration_days !== 1 ? "s" : ""}`
+                      : "—"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground uppercase">Total</p>
+                  <p className="font-semibold">
+                    {fmtCurrency((viewing.expenses || []).reduce((s, e) => s + e.amount, 0))}
+                  </p>
+                </div>
+              </div>
+              <Separator className="my-2" />
+              <div className="rounded-md border max-h-[40vh] overflow-y-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Note</TableHead>
+                      <TableHead className="text-right">Amount</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Receipt</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {(!viewing.expenses || viewing.expenses.length === 0) ? (
+                      <TableRow>
+                        <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
+                          No expenses added yet.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      viewing.expenses.map((exp: RequisitionExpense) => (
+                        <TableRow key={exp.id}>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {exp.expense_date
+                              ? new Date(exp.expense_date + "T00:00:00").toLocaleDateString()
+                              : "—"}
+                          </TableCell>
+                          <TableCell>{exp.notes || "—"}</TableCell>
+                          <TableCell className="text-right font-medium">
+                            {fmtCurrency(exp.amount)}
+                          </TableCell>
+                          <TableCell>{statusBadge(exp.status)}</TableCell>
+                          <TableCell>
+                            {exp.receipt_url ? (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setReceiptPreview(exp.receipt_url ?? null)}
+                                className="text-blue-600 hover:text-blue-800 hover:bg-blue-50"
+                              >
+                                <Paperclip className="mr-1.5 h-3.5 w-3.5" />
+                                View
+                              </Button>
+                            ) : (
+                              <span className="text-muted-foreground text-sm">—</span>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+              <DialogFooter className="gap-2 sm:gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => handleDownloadSingle(viewing.id, viewing.title)}
+                >
+                  <Download className="mr-2 h-4 w-4" />
+                  Download Report
+                </Button>
+                <Button onClick={() => navigate(`/requisitions/${viewing.id}`)}>
+                  <Pencil className="mr-2 h-4 w-4" />
+                  Open Editor
+                </Button>
+              </DialogFooter>
+            </>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+
+      {/* Receipt Preview Dialog */}
+      <Dialog open={!!receiptPreview} onOpenChange={(open) => !open && setReceiptPreview(null)}>
+        <DialogContent className="max-w-4xl w-full h-[85vh] flex flex-col p-0">
+          <DialogTitle className="sr-only">Receipt Preview</DialogTitle>
+          <DialogDescription className="sr-only">Preview of the uploaded receipt file</DialogDescription>
+          {receiptPreview &&
+            (isPdf(receiptPreview) ? (
+              <iframe
+                src={receiptPreview}
+                className="w-full h-full border-0"
+                title="Receipt PDF"
+              />
+            ) : (
+              <div className="flex-1 flex items-center justify-center p-4 overflow-auto bg-muted/20">
+                <img
+                  src={receiptPreview}
+                  alt="Receipt"
+                  className="max-w-full max-h-full object-contain rounded-md shadow-sm"
+                />
+              </div>
+            ))}
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={!!deleteConfirm} onOpenChange={(open) => !open && setDeleteConfirm(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Requisition?</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to permanently delete
+              <span className="font-semibold"> "{deleteConfirm?.title}"</span>?
+              This will also remove all its expenses. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button variant="outline" onClick={() => setDeleteConfirm(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDelete}
+              disabled={deletingId !== null}
+            >
+              {deletingId !== null && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
     </div>
   )
 }

@@ -24,6 +24,32 @@ export const requisitionService = {
     return res.data.data
   },
 
+  async reopen(id: string): Promise<Requisition> {
+    const res = await api.put<ApiResponse<Requisition>>(`/requisitions/${id}/reopen`)
+    return res.data.data
+  },
+
+  async update(id: string, title: string): Promise<Requisition> {
+    const form = new FormData()
+    form.append("title", title)
+    const res = await api.put<ApiResponse<Requisition>>(`/requisitions/${id}`, form)
+    return res.data.data
+  },
+
+  async approveExpense(reqId: string, expId: string): Promise<RequisitionExpense> {
+    const res = await api.post<ApiResponse<RequisitionExpense>>(
+      `/requisitions/${reqId}/expenses/${expId}/approve`
+    )
+    return res.data.data
+  },
+
+  async rejectExpense(reqId: string, expId: string): Promise<RequisitionExpense> {
+    const res = await api.post<ApiResponse<RequisitionExpense>>(
+      `/requisitions/${reqId}/expenses/${expId}/reject`
+    )
+    return res.data.data
+  },
+
   async addExpense(
     reqId: string,
     data: { note?: string; amount: number; expense_date?: string; receipt?: File }
@@ -46,10 +72,13 @@ export const requisitionService = {
   },
 
   async downloadBulk(ids: string[]): Promise<Blob> {
-    const res = await api.post("/requisitions/download-bulk", null, {
-      params: { ids },
+    const res = await api.post("/requisitions/download-bulk", { ids }, {
       responseType: "blob",
     })
     return res.data as unknown as Blob
+  },
+
+  async delete(id: string): Promise<void> {
+    await api.delete(`/requisitions/${id}`)
   },
 }

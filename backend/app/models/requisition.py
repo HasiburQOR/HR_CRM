@@ -29,6 +29,11 @@ class RequisitionExpense(Base):
     notes = Column(Text, nullable=True)
     amount = Column(Float, nullable=False)
     receipt_url = Column(String(500), nullable=True)
+    # Approval workflow: each expense must be manually approved/rejected by an admin
+    status = Column(String(20), nullable=False, default="pending")  # "pending" | "approved" | "rejected"
+    approved_by = Column(String(36), ForeignKey("users.id"), nullable=True)
+    rejected_by = Column(String(36), ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     requisition = relationship("Requisition", back_populates="expenses")

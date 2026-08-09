@@ -228,7 +228,11 @@ export interface RequisitionExpense {
   notes?: string | null
   amount: number
   receipt_url?: string | null
+  status?: string
+  approved_by?: string | null
+  rejected_by?: string | null
   created_at?: string | null
+  updated_at?: string | null
   [key: string]: any
 }
 

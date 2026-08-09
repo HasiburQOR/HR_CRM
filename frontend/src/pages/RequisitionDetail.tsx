@@ -6,10 +6,14 @@ import {
   FileText,
   Loader2,
   Lock,
+  Unlock,
   Upload,
   Paperclip,
   Receipt,
   AlertCircle,
+  Pencil,
+  Check,
+  X,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -37,6 +41,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { useToast } from "@/components/ui/useToast"
+import { useAuth } from "@/contexts/AuthContext"
 import { requisitionService } from "@/services/requisition.service"
 import type { Requisition, RequisitionExpense } from "@/types"
 
@@ -44,17 +49,30 @@ export default function RequisitionDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { toast } = useToast()
+  const { user } = useAuth()
+  const isAdmin =
+    !!user?.is_superuser ||
+    ["admin", "ceo", "hr"].includes((user?.role || "").toLowerCase())
   const fileRef = useRef<HTMLInputElement>(null)
 
   const [req, setReq] = useState<Requisition | null>(null)
   const [loading, setLoading] = useState(true)
   const [adding, setAdding] = useState(false)
   const [closing, setClosing] = useState(false)
+  const [reopening, setReopening] = useState(false)
   const [note, setNote] = useState("")
   const [amount, setAmount] = useState("")
   const [expenseDate, setExpenseDate] = useState(() => new Date().toISOString().split("T")[0])
   const [file, setFile] = useState<File | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+
+  // Inline title editing
+  const [editingTitle, setEditingTitle] = useState(false)
+  const [titleDraft, setTitleDraft] = useState("")
+  const [savingTitle, setSavingTitle] = useState(false)
+
+  // Per-expense approval action loading
+  const [actionExpId, setActionExpId] = useState<string | null>(null)
 
   const fetchReq = async () => {
     if (!id) return
@@ -113,6 +131,105 @@ export default function RequisitionDetail() {
     }
   }
 
+  const handleReopen = async () => {
+    if (!id) return
+    setReopening(true)
+    try {
+      await requisitionService.reopen(id)
+      toast({ title: "Requisition reopened — now editable" })
+      fetchReq()
+    } catch {
+      toast({ title: "Failed to reopen requisition", variant: "destructive" })
+    } finally {
+      setReopening(false)
+    }
+  }
+
+  const startEditTitle = () => {
+    if (!req) return
+    setTitleDraft(req.title)
+    setEditingTitle(true)
+  }
+
+  const handleSaveTitle = async () => {
+    if (!id || !req) return
+    const trimmed = titleDraft.trim()
+    if (!trimmed) {
+      toast({ title: "Title is required", variant: "destructive" })
+      return
+    }
+    if (trimmed === req.title) {
+      setEditingTitle(false)
+      return
+    }
+    setSavingTitle(true)
+    try {
+      await requisitionService.update(id, trimmed)
+      toast({ title: "Title updated" })
+      setEditingTitle(false)
+      fetchReq()
+    } catch (err: any) {
+      toast({
+        title: "Failed to update title",
+        description: err?.message || "Unknown error",
+        variant: "destructive",
+      })
+    } finally {
+      setSavingTitle(false)
+    }
+  }
+
+  const handleApproveExpense = async (expId: string) => {
+    if (!id) return
+    setActionExpId(expId)
+    try {
+      await requisitionService.approveExpense(id, expId)
+      toast({ title: "Expense approved" })
+      fetchReq()
+    } catch (err: any) {
+      toast({
+        title: "Failed to approve expense",
+        description: err?.message || "Unknown error",
+        variant: "destructive",
+      })
+    } finally {
+      setActionExpId(null)
+    }
+  }
+
+  const handleRejectExpense = async (expId: string) => {
+    if (!id) return
+    setActionExpId(expId)
+    try {
+      await requisitionService.rejectExpense(id, expId)
+      toast({ title: "Expense rejected" })
+      fetchReq()
+    } catch (err: any) {
+      toast({
+        title: "Failed to reject expense",
+        description: err?.message || "Unknown error",
+        variant: "destructive",
+      })
+    } finally {
+      setActionExpId(null)
+    }
+  }
+
+  const statusBadge = (status?: string | null) => {
+    const s = (status || "pending").toLowerCase()
+    const cls =
+      s === "approved"
+        ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-100"
+        : s === "rejected"
+          ? "bg-red-100 text-red-800 hover:bg-red-100"
+          : "bg-amber-100 text-amber-800 hover:bg-amber-100"
+    return (
+      <Badge variant="secondary" className={cls}>
+        {s}
+      </Badge>
+    )
+  }
+
   const fmtDate = (d?: string | null) =>
     d ? new Date(d).toLocaleString() : "—"
 
@@ -152,7 +269,57 @@ export default function RequisitionDetail() {
             >
               <ArrowLeft className="h-4 w-4" />
             </Button>
-            <h2 className="text-2xl font-bold">{req.title}</h2>
+            {editingTitle ? (
+              <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+                <Input
+                  value={titleDraft}
+                  onChange={(e) => setTitleDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleSaveTitle()
+                    if (e.key === "Escape") setEditingTitle(false)
+                  }}
+                  autoFocus
+                  className="text-lg font-bold h-9 max-w-md"
+                  disabled={savingTitle}
+                />
+                <Button
+                  size="sm"
+                  onClick={handleSaveTitle}
+                  disabled={savingTitle}
+                  title="Save"
+                >
+                  {savingTitle ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Check className="h-4 w-4" />
+                  )}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setEditingTitle(false)}
+                  disabled={savingTitle}
+                  title="Cancel"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <h2 className="text-2xl font-bold">{req.title}</h2>
+                {!isClosed && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={startEditTitle}
+                    title="Edit title"
+                    className="h-7 w-7 p-0"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+              </div>
+            )}
             <Badge
               variant="secondary"
               className={
@@ -165,9 +332,19 @@ export default function RequisitionDetail() {
             </Badge>
             <div className="ml-auto">
               {isClosed ? (
-                <Button variant="outline" size="sm" disabled>
-                  <Lock className="mr-2 h-4 w-4" />
-                  Closed
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={reopening}
+                  onClick={handleReopen}
+                  className="text-emerald-600 border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700"
+                >
+                  {reopening ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Unlock className="mr-2 h-4 w-4" />
+                  )}
+                  Reopen
                 </Button>
               ) : (
                 <Button
@@ -352,6 +529,7 @@ export default function RequisitionDetail() {
                   <TableHead>Date</TableHead>
                   <TableHead>Note</TableHead>
                   <TableHead className="text-right">Amount</TableHead>
+                  <TableHead>Status</TableHead>
                   <TableHead>Receipt</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
@@ -359,7 +537,7 @@ export default function RequisitionDetail() {
               <TableBody>
                 {(!req.expenses || req.expenses.length === 0) ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="h-40">
+                    <TableCell colSpan={6} className="h-40">
                       <div className="flex flex-col items-center justify-center text-muted-foreground">
                         <Receipt className="h-10 w-10 mb-2 opacity-40" />
                         <p className="text-sm">No expenses added yet.</p>
@@ -378,6 +556,7 @@ export default function RequisitionDetail() {
                       <TableCell className="text-right font-medium">
                         {fmtCurrency(exp.amount)}
                       </TableCell>
+                      <TableCell>{statusBadge(exp.status)}</TableCell>
                       <TableCell>
                         {exp.receipt_url ? (
                           <Button
@@ -394,14 +573,46 @@ export default function RequisitionDetail() {
                         )}
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setPreviewUrl(exp.receipt_url ?? null)}
-                          title="View Receipt"
-                        >
-                          <FileText className="h-4 w-4" />
-                        </Button>
+                        <div className="flex justify-end items-center gap-1">
+                          {isAdmin && (exp.status || "pending") === "pending" && (
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                disabled={actionExpId === exp.id}
+                                onClick={() => handleApproveExpense(exp.id)}
+                                title="Approve"
+                                className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+                              >
+                                {actionExpId === exp.id ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Check className="h-4 w-4" />
+                                )}
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                disabled={actionExpId === exp.id}
+                                onClick={() => handleRejectExpense(exp.id)}
+                                title="Reject"
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                              >
+                                <X className="h-4 w-4" />
+                              </Button>
+                            </>
+                          )}
+                          {exp.receipt_url && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setPreviewUrl(exp.receipt_url ?? null)}
+                              title="View Receipt"
+                            >
+                              <FileText className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))

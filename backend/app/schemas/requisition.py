@@ -1,10 +1,14 @@
-from datetime import datetime
+from datetime import datetime, date
 from pydantic import BaseModel
 from typing import Optional
 
 
 class RequisitionCreate(BaseModel):
     title: str
+
+
+class RequisitionUpdate(BaseModel):
+    title: Optional[str] = None
 
 
 class RequisitionResponse(BaseModel):
@@ -28,10 +32,15 @@ class ExpenseCreate(BaseModel):
 class ExpenseResponse(BaseModel):
     id: str
     requisition_id: str
+    expense_date: Optional[date] = None
     notes: Optional[str] = None
     amount: float
     receipt_url: Optional[str] = None
+    status: Optional[str] = "pending"
+    approved_by: Optional[str] = None
+    rejected_by: Optional[str] = None
     created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
