@@ -47,6 +47,8 @@ import { useToast } from "@/components/ui/useToast"
 import { useAuth } from "@/contexts/AuthContext"
 import { formatDate } from "@/lib/utils"
 
+const REQUIRED_HOURS = 9
+
 const statusVariant = (s: string) => {
   const map: Record<string, any> = {
     present: "success",
@@ -56,6 +58,14 @@ const statusVariant = (s: string) => {
     rejected: "destructive",
   }
   return map[s] || "default"
+}
+
+/** Format decimal hours into "Xh Ym" string */
+function formatHours(h: number | null | undefined): string {
+  if (h == null || h < 0) return "—"
+  const hrs = Math.floor(h)
+  const mins = Math.round((h - hrs) * 60)
+  return `${hrs}h ${String(mins).padStart(2, "0")}m`
 }
 
 type ActionMode = "in" | "out" | "record"
@@ -327,6 +337,7 @@ export default function Attendance() {
                 <TableHead>Employee</TableHead>
                 <TableHead>Check In</TableHead>
                 <TableHead>Check Out</TableHead>
+                <TableHead>Hours</TableHead>
                 <TableHead>Lunch</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Notes</TableHead>
@@ -336,13 +347,13 @@ export default function Attendance() {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center text-muted-foreground">
+                  <TableCell colSpan={9} className="text-center text-muted-foreground">
                     Loading...
                   </TableCell>
                 </TableRow>
               ) : rows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center text-muted-foreground">
+                  <TableCell colSpan={9} className="text-center text-muted-foreground">
                     No records yet — Check In an employee to start.
                   </TableCell>
                 </TableRow>
@@ -358,6 +369,22 @@ export default function Attendance() {
                     </TableCell>
                     <TableCell className="font-mono">{r.check_in || "—"}</TableCell>
                     <TableCell className="font-mono">{r.check_out || "—"}</TableCell>
+                    <TableCell>
+                      {r.hours_worked != null ? (
+                        <Badge
+                          variant="outline"
+                          className={
+                            r.hours_worked >= REQUIRED_HOURS
+                              ? "border-emerald-400 text-emerald-600 bg-emerald-50 font-semibold"
+                              : "border-red-400 text-red-600 bg-red-50 font-semibold"
+                          }
+                        >
+                          {formatHours(r.hours_worked)}
+                        </Badge>
+                      ) : (
+                        <span className="text-muted-foreground text-xs">—</span>
+                      )}
+                    </TableCell>
                     <TableCell>
                       {r.lunch_taken || r.lunch_included || r.auto_lunch_counted ? (
                         <Badge variant="outline" className="gap-1 flex items-center">

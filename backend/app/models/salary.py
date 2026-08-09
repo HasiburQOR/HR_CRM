@@ -14,6 +14,8 @@ class Salary(BaseModel):
     basic_salary = Column(Float, default=0.0)
     allowances = Column(Float, default=0.0)
     deductions = Column(Float, default=0.0)
+    working_days = Column(Integer, default=0)
+    days_attended = Column(Integer, default=0)
     net_salary = Column(Float, default=0.0)
     payment_date = Column(String(50), nullable=True)
     status = Column(String(20), default="pending")

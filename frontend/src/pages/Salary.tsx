@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from "react"
-import { Plus, CheckCircle, Banknote, Pencil, Trash2 } from "lucide-react"
+import { Plus, CheckCircle, Banknote, Pencil, Trash2, Eye } from "lucide-react"
 import { salaryService } from "@/services/salary.service"
 import type { Salary } from "@/types"
 import { Button } from "@/components/ui/button"
@@ -60,6 +60,8 @@ export default function Salary() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [form, setForm] = useState<Partial<Salary>>({})
+  const [viewOpen, setViewOpen] = useState(false)
+  const [viewRecord, setViewRecord] = useState<Salary | null>(null)
   const { toast } = useToast()
 
   useEffect(() => {
@@ -88,6 +90,11 @@ export default function Salary() {
     setEditingId(r.id)
     setForm({ ...r })
     setDialogOpen(true)
+  }
+
+  function openView(r: Salary) {
+    setViewRecord(r)
+    setViewOpen(true)
   }
 
   // Auto-calculations from gross salary
@@ -395,6 +402,110 @@ export default function Salary() {
           </DialogContent>
         </Dialog>
 
+      {/* Salary View Details Dialog */}
+      <Dialog open={viewOpen} onOpenChange={setViewOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Salary Details</DialogTitle>
+          </DialogHeader>
+          {viewRecord && (() => {
+            const gross = (viewRecord as any).gross_salary || (viewRecord.basic_salary || 0) + (viewRecord.allowances || 0)
+            const perDay = (viewRecord as any).per_day_rate || ((viewRecord.working_days || 0) > 0 && gross > 0 ? Math.round(gross / (viewRecord.working_days || 0)) : 0)
+            return (
+              <div className="space-y-4 py-2">
+                {/* Employee + Period */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="border rounded-lg p-3 bg-muted/50">
+                    <p className="text-xs text-muted-foreground">Employee</p>
+                    <p className="font-semibold">{(viewRecord as any).employee_name || viewRecord.employee_id?.slice(0, 8)}</p>
+                  </div>
+                  <div className="border rounded-lg p-3 bg-muted/50">
+                    <p className="text-xs text-muted-foreground">Period</p>
+                    <p className="font-semibold capitalize">{viewRecord.month} {viewRecord.year}</p>
+                  </div>
+                </div>
+
+                {/* Breakdown */}
+                <div className="border rounded-lg p-4 space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Gross Salary</span>
+                    <span className="font-mono font-semibold">{formatCurrency(gross)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Basic (60%)</span>
+                    <span className="font-mono">{formatCurrency(viewRecord.basic_salary || 0)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Allowances (40%)</span>
+                    <span className="font-mono text-emerald-600">+{formatCurrency(viewRecord.allowances || 0)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Deductions</span>
+                    <span className="font-mono text-rose-600">-{formatCurrency(viewRecord.deductions || 0)}</span>
+                  </div>
+                  <div className="border-t pt-2 flex justify-between font-bold">
+                    <span>Net Salary</span>
+                    <span className="font-mono text-blue-600">{formatCurrency(viewRecord.net_salary || 0)}</span>
+                  </div>
+                </div>
+
+                {/* Attendance info */}
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="border rounded-lg p-3 bg-muted/50">
+                    <p className="text-xs text-muted-foreground">Working Days</p>
+                    <p className="font-mono font-semibold">{viewRecord.working_days || 0}</p>
+                  </div>
+                  <div className="border rounded-lg p-3 bg-muted/50">
+                    <p className="text-xs text-muted-foreground">Days Attended</p>
+                    <p className="font-mono font-semibold">{viewRecord.days_attended || 0}</p>
+                  </div>
+                  <div className="border rounded-lg p-3 bg-muted/50">
+                    <p className="text-xs text-muted-foreground">Per Day Rate</p>
+                    <p className="font-mono font-semibold text-purple-600">{formatCurrency(perDay)}</p>
+                  </div>
+                </div>
+
+                {/* Status + dates */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="border rounded-lg p-3 bg-muted/50">
+                    <p className="text-xs text-muted-foreground">Status</p>
+                    <Badge variant={statusVariant(viewRecord.status || "pending")} className="capitalize mt-1">{viewRecord.status || "pending"}</Badge>
+                  </div>
+                  <div className="border rounded-lg p-3 bg-muted/50">
+                    <p className="text-xs text-muted-foreground">Payment Date</p>
+                    <p className="font-mono font-semibold">{viewRecord.payment_date || "—"}</p>
+                  </div>
+                </div>
+
+                {/* Notes */}
+                {viewRecord.notes && (
+                  <div className="border rounded-lg p-3 bg-muted/50">
+                    <p className="text-xs text-muted-foreground">Notes</p>
+                    <p className="text-sm">{viewRecord.notes}</p>
+                  </div>
+                )}
+
+                {/* Meta */}
+                <div className="text-xs text-muted-foreground space-y-1">
+                  <p>Record ID: <span className="font-mono">{viewRecord.id}</span></p>
+                  {viewRecord.approved_by && <p>Approved By: <span className="font-mono">{viewRecord.approved_by}</span></p>}
+                  {viewRecord.created_at && <p>Created: <span className="font-mono">{new Date(viewRecord.created_at).toLocaleString()}</span></p>}
+                  {viewRecord.updated_at && <p>Updated: <span className="font-mono">{new Date(viewRecord.updated_at).toLocaleString()}</span></p>}
+                </div>
+              </div>
+            )
+          })()}
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setViewOpen(false)}>Close</Button>
+            {viewRecord && (
+              <Button onClick={() => { setViewOpen(false); openEdit(viewRecord); }}>
+                <Pencil className="mr-2 h-4 w-4" /> Edit
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Card>
         <CardHeader className="pb-2"><CardTitle className="text-lg">Records ({rows.length})</CardTitle></CardHeader>
         <CardContent>
@@ -431,6 +542,9 @@ export default function Salary() {
                     <TableCell><Badge variant={statusVariant(r.status || "pending")} className="capitalize">{r.status || "pending"}</Badge></TableCell>
                     <TableCell className="text-right">
                       <div className="inline-flex gap-1 justify-end">
+                        <Button size="sm" variant="ghost" onClick={() => openView(r)} title="View Details">
+                          <Eye className="h-4 w-4 text-blue-600" />
+                        </Button>
                         <Button size="sm" variant="ghost" onClick={() => openEdit(r)} title="Edit">
                           <Pencil className="h-4 w-4" />
                         </Button>

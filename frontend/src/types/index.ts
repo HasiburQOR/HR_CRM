@@ -75,6 +75,7 @@ export interface Attendance {
   lunch_break_start?: string | null
   lunch_break_end?: string | null
   auto_lunch_counted?: boolean
+  hours_worked?: number | null
   created_at?: string | null
   updated_at?: string | null
   [key: string]: any
@@ -86,9 +87,13 @@ export interface Salary {
   employee_name?: string
   month?: string
   year?: number
+  gross_salary?: number
   basic_salary?: number
   allowances?: number
   deductions?: number
+  working_days?: number
+  days_attended?: number
+  per_day_rate?: number
   net_salary?: number
   payment_date?: string | null
   status?: string

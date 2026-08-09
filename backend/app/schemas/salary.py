@@ -10,6 +10,8 @@ class SalaryBase(BaseModel):
     basic_salary: float = 0.0
     allowances: float = 0.0
     deductions: float = 0.0
+    working_days: int = 0
+    days_attended: int = 0
     net_salary: float = 0.0
     payment_date: str | None = None
     status: str = "pending"
@@ -29,6 +31,8 @@ class SalaryUpdate(BaseModel):
     basic_salary: float | None = None
     allowances: float | None = None
     deductions: float | None = None
+    working_days: int | None = None
+    days_attended: int | None = None
     net_salary: float | None = None
     payment_date: str | None = None
     status: str | None = None

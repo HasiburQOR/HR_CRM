@@ -132,6 +132,8 @@ def _run_sqlite_migrations() -> None:
             _add_column_if_missing(conn, "salaries", "payment_date", "VARCHAR(50)")
             _add_column_if_missing(conn, "salaries", "status", "VARCHAR(20) DEFAULT 'pending'")
             _add_column_if_missing(conn, "salaries", "approved_by", "VARCHAR(36)")
+            _add_column_if_missing(conn, "salaries", "working_days", "INTEGER DEFAULT 0")
+            _add_column_if_missing(conn, "salaries", "days_attended", "INTEGER DEFAULT 0")
             try:
                 conn.execute(text("UPDATE salaries SET basic_salary = base_salary WHERE basic_salary IS NULL OR basic_salary = 0"))
             except Exception:
@@ -198,6 +200,11 @@ def _run_postgres_migrations() -> None:
                     """))
                     conn.commit()
                     break
+
+            # Add salary columns: working_days and days_attended
+            _add_column_if_missing(conn, "salaries", "working_days", "INTEGER DEFAULT 0")
+            _add_column_if_missing(conn, "salaries", "days_attended", "INTEGER DEFAULT 0")
+            conn.commit()
     except Exception:
         pass
 

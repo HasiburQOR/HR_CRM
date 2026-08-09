@@ -235,6 +235,9 @@ def report_salary(
             "Gross Salary (BDT)": getattr(s, "gross_salary", 0) or (s.basic_salary or 0) + (s.allowances or 0),
             "Basic Salary (BDT)": s.basic_salary,
             "Allowances (BDT)": s.allowances,
+            "Working Days": getattr(s, "working_days", 0) or 0,
+            "Days Attended": getattr(s, "days_attended", 0) or 0,
+            "Per Day Rate (BDT)": round((getattr(s, "gross_salary", 0) or 0) / (getattr(s, "working_days", 0) or 1)) if (getattr(s, "working_days", 0) or 0) > 0 else 0,
             "Deductions (BDT)": s.deductions,
             "Net Salary (BDT)": s.net_salary,
             "Payment Date": s.payment_date or "",
@@ -472,12 +475,18 @@ def report_employee_individual(
 
     salary_rows = []
     for s, in db.query(Salary).filter(Salary.employee_id == emp.id).order_by(Salary.year.desc(), Salary.id.desc()).limit(200).all():
+        wd = getattr(s, "working_days", 0) or 0
+        da = getattr(s, "days_attended", 0) or 0
+        gross = getattr(s, "gross_salary", 0) or (s.basic_salary or 0) + (s.allowances or 0)
         salary_rows.append({
             "Month": s.month,
             "Year": s.year,
-            "Gross (BDT)": getattr(s, "gross_salary", 0) or (s.basic_salary or 0) + (s.allowances or 0),
+            "Gross (BDT)": gross,
             "Basic (BDT)": s.basic_salary,
             "Allowances (BDT)": s.allowances,
+            "Working Days": wd,
+            "Days Attended": da,
+            "Per Day Rate (BDT)": round(gross / wd) if wd > 0 else 0,
             "Deductions (BDT)": s.deductions,
             "Net Salary (BDT)": s.net_salary,
             "Payment Date": s.payment_date or "",

@@ -31,6 +31,17 @@ def _parse_hhmm(s: str | None) -> dt_time | None:
 
 
 def _att_to_dict(att: Attendance, emp: Employee | None) -> dict:
+    # Calculate hours worked
+    hours_worked = None
+    if att.clock_in and att.clock_out:
+        total_seconds = (
+            datetime.combine(dt_date.min, att.clock_out)
+            - datetime.combine(dt_date.min, att.clock_in)
+        ).total_seconds()
+        if total_seconds > 0:
+            lunch_seconds = 3600 if att.auto_lunch_counted else 0
+            hours_worked = round((total_seconds - lunch_seconds) / 3600, 2)
+
     return {
         "id": att.id,
         "employee_id": att.employee_id,
@@ -45,6 +56,7 @@ def _att_to_dict(att: Attendance, emp: Employee | None) -> dict:
         "lunch_taken": bool(att.auto_lunch_counted),
         "lunch_included": bool(att.auto_lunch_counted),
         "auto_lunch_counted": bool(att.auto_lunch_counted),
+        "hours_worked": hours_worked,
         "notes": att.notes or "",
         "created_at": att.created_at.isoformat() if att.created_at else None,
         "updated_at": att.updated_at.isoformat() if att.updated_at else None,

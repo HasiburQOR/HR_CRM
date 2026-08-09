@@ -18,28 +18,44 @@ def _calc_net(data_dict):
     basic = float(data_dict.get("basic_salary") or 0)
     allow = float(data_dict.get("allowances") or 0)
     deduct = float(data_dict.get("deductions") or 0)
-    # If gross is set, use gross - deductions; otherwise basic + allow - deduct
-    if gross > 0:
-        return round(gross - deduct, 2)
-    return round(basic + allow - deduct, 2)
+    working_days = int(data_dict.get("working_days") or 0)
+    days_attended = int(data_dict.get("days_attended") or 0)
+    # If working_days and days_attended are set, use per-day calculation
+    if working_days > 0 and days_attended > 0 and gross > 0:
+        per_day = gross / working_days
+        net = round(per_day * days_attended - deduct, 2)
+    elif gross > 0:
+        net = round(gross - deduct, 2)
+    else:
+        net = round(basic + allow - deduct, 2)
+    return max(net, 0)
 
 
 def _salary_dict(sal, emp):
+    wd = getattr(sal, "working_days", 0) or 0
+    da = getattr(sal, "days_attended", 0) or 0
+    gross = getattr(sal, "gross_salary", 0) or 0
+    per_day = round(gross / wd) if wd > 0 and gross > 0 else 0
     return {
         "id": sal.id,
         "employee_id": sal.employee_id,
         "employee_name": f"{emp.first_name} {emp.last_name}" if emp else "Unknown",
         "month": sal.month,
         "year": sal.year,
-        "gross_salary": getattr(sal, "gross_salary", 0) or 0,
+        "gross_salary": gross,
         "basic_salary": sal.basic_salary,
         "allowances": sal.allowances,
         "deductions": sal.deductions,
+        "working_days": wd,
+        "days_attended": da,
+        "per_day_rate": per_day,
         "net_salary": sal.net_salary or _calc_net({
-            "gross_salary": getattr(sal, "gross_salary", 0),
+            "gross_salary": gross,
             "basic_salary": sal.basic_salary,
             "allowances": sal.allowances,
             "deductions": sal.deductions,
+            "working_days": wd,
+            "days_attended": da,
         }),
         "payment_date": sal.payment_date or "",
         "status": sal.status,
@@ -111,18 +127,15 @@ def update_salary(salary_id: str, data: SalaryUpdate, db: Session = Depends(get_
         raise HTTPException(status_code=404, detail="Salary record not found")
     for k, v in update_data.items():
         setattr(sal, k, v)
-    if "basic_salary" in update_data or "allowances" in update_data or "deductions" in update_data:
-        sal.net_salary = _calc_net({
-            "basic_salary": sal.basic_salary,
-            "allowances": sal.allowances,
-            "deductions": sal.deductions,
-        })
-    if "gross_salary" in update_data:
+    # Recalculate net_salary if any relevant field changed
+    if any(k in update_data for k in ("basic_salary", "allowances", "deductions", "gross_salary", "working_days", "days_attended")):
         sal.net_salary = _calc_net({
             "gross_salary": sal.gross_salary,
             "basic_salary": sal.basic_salary,
             "allowances": sal.allowances,
             "deductions": sal.deductions,
+            "working_days": getattr(sal, "working_days", 0) or 0,
+            "days_attended": getattr(sal, "days_attended", 0) or 0,
         })
     db.commit()
     db.refresh(sal)
