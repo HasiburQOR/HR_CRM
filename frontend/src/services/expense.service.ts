@@ -11,10 +11,17 @@ export interface ExpenseListResponse {
 
 export const expenseService = {
   async getAll(params: {
+    page?: number
+    per_page?: number
     skip?: number
     limit?: number
     status?: string
+    category?: string
     employee_id?: string
+    start_date?: string
+    end_date?: string
+    sort_by?: string
+    sort_order?: "asc" | "desc"
   } = {}): Promise<ExpenseListResponse> {
     const res = await api.get<ExpenseListResponse>("/expenses", { params })
     return res.data as unknown as ExpenseListResponse
@@ -42,6 +49,11 @@ export const expenseService = {
 
   async delete(id: string): Promise<void> {
     await api.delete(`/expenses/${id}`)
+  },
+
+  async bulkDelete(ids: string[]): Promise<number> {
+    const res = await api.post<ApiResponse<{ deleted: number }>>("/expenses/bulk-delete", { ids })
+    return res.data.data.deleted
   },
 
   async approve(id: string, notes?: string): Promise<Expense> {

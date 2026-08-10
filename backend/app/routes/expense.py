@@ -8,6 +8,7 @@ from datetime import date as date_type
 
 from fastapi import APIRouter, Depends, Query, HTTPException, UploadFile, File
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
@@ -63,6 +64,9 @@ def _ex_to_dict(ex, emp: Employee | None) -> dict:
     return d
 
 
+_SORT_FIELDS = {"expense_date", "amount", "category", "product_name", "vendor", "status", "created_at"}
+
+
 @router.get("")
 def list_expenses(
     page: int = Query(1, ge=1),
@@ -71,18 +75,39 @@ def list_expenses(
     employee_id: str = Query(None),
     start_date: date = Query(None),
     end_date: date = Query(None),
+    sort_by: str = Query("expense_date"),
+    sort_order: str = Query("desc"),
     db: Session = Depends(get_db),
     current_user: Any = Depends(get_current_user),
 ):
     service = ExpenseService(db)
     skip = (page - 1) * per_page
-    records, total = service.get_filtered(skip, per_page, category, employee_id, start_date, end_date)
+    sort_by = sort_by if sort_by in _SORT_FIELDS else "expense_date"
+    sort_order = "asc" if sort_order == "asc" else "desc"
+    records, total = service.get_filtered(
+        skip, per_page, category, employee_id, start_date, end_date, sort_by, sort_order
+    )
     result = []
     for ex in records:
         eid = ex["employee_id"] if isinstance(ex, dict) else ex.employee_id
         emp = db.query(Employee).filter(Employee.id == eid).first()
         result.append(_ex_to_dict(ex, emp))
     return paginated_response(data=result, total=total, page=page, per_page=per_page)
+
+
+class BulkDeleteRequest(BaseModel):
+    ids: list[str]
+
+
+@router.post("/bulk-delete")
+def bulk_delete_expenses(
+    data: BulkDeleteRequest,
+    db: Session = Depends(get_db),
+    current_user: Any = Depends(get_current_user),
+):
+    service = ExpenseService(db)
+    deleted = service.bulk_delete(data.ids)
+    return success_response(data={"deleted": deleted})
 
 
 @router.get("/summary")

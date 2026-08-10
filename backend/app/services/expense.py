@@ -16,8 +16,14 @@ class ExpenseService:
     def get_filtered(
         self, skip: int = 0, limit: int = 100, category: str = None,
         employee_id: str = None, start_date: date = None, end_date: date = None,
+        sort_by: str = "expense_date", sort_order: str = "desc",
     ):
-        return self.repo.get_filtered(skip, limit, category, employee_id, start_date, end_date)
+        return self.repo.get_filtered(
+            skip, limit, category, employee_id, start_date, end_date, sort_by, sort_order
+        )
+
+    def bulk_delete(self, ids: list[str]) -> int:
+        return self.repo.bulk_delete(ids)
 
     def get_by_id(self, expense_id: str):
         record = self.repo.get(expense_id)

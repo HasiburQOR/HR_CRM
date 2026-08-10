@@ -14,11 +14,15 @@ import {
   UserRound,
   Trash2,
   Loader2,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown,
 } from "lucide-react"
 import { expenseService } from "@/services/expense.service"
 import type { Expense, Employee } from "@/types"
 import { EmployeeSelect } from "@/components/EmployeeSelect"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Table,
@@ -102,6 +106,16 @@ const MONTHS = [
 ]
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
+
+type SortField = "expense_date" | "amount" | "category" | "product_name" | "status"
+
+const SORT_COLUMNS: { field: SortField; label: string }[] = [
+  { field: "expense_date", label: "Date" },
+  { field: "product_name", label: "Item Name" },
+  { field: "category", label: "Category" },
+  { field: "amount", label: "Amount" },
+  { field: "status", label: "Status" },
+]
 
 type PeriodMode = "all" | "day" | "month" | "year" | "range"
 
@@ -208,8 +222,28 @@ export default function Expenses() {
   const [deleteConfirm, setDeleteConfirm] = useState<Expense | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
-  function buildQueryParams(targetPage: number, targetPerPage: number, filters: ViewFilters | null) {
-    const params: Record<string, any> = { page: targetPage, per_page: targetPerPage }
+  // Sort
+  const [sortBy, setSortBy] = useState<SortField>("expense_date")
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc")
+
+  // Multi-select + bulk delete (selection is scoped to the current page)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false)
+  const [bulkDeleting, setBulkDeleting] = useState(false)
+
+  function buildQueryParams(
+    targetPage: number,
+    targetPerPage: number,
+    filters: ViewFilters | null,
+    sortField: SortField = sortBy,
+    sortDir: "asc" | "desc" = sortOrder,
+  ) {
+    const params: Record<string, any> = {
+      page: targetPage,
+      per_page: targetPerPage,
+      sort_by: sortField,
+      sort_order: sortDir,
+    }
     if (filters) {
       if (filters.employee_id) params.employee_id = filters.employee_id
       if (filters.category) params.category = filters.category
@@ -225,10 +259,19 @@ export default function Expenses() {
     loadStats(null)
   }, [])
 
-  async function load(targetPage = page, targetPerPage = perPage, filters = activeFilters) {
+  async function load(
+    targetPage = page,
+    targetPerPage = perPage,
+    filters = activeFilters,
+    sortField = sortBy,
+    sortDir = sortOrder,
+  ) {
     try {
       setLoading(true)
-      const res = await expenseService.getAll(buildQueryParams(targetPage, targetPerPage, filters))
+      const res = await expenseService.getAll(
+        buildQueryParams(targetPage, targetPerPage, filters, sortField, sortDir)
+      )
+      setSelected(new Set())
       if (Array.isArray(res)) {
         setRows(res)
       } else {
@@ -296,6 +339,43 @@ export default function Expenses() {
   function changePerPage(n: number) {
     setPerPage(n)
     load(1, n, activeFilters)
+  }
+
+  function changeSort(field: SortField) {
+    const nextOrder: "asc" | "desc" = field === sortBy ? (sortOrder === "asc" ? "desc" : "asc") : "asc"
+    setSortBy(field)
+    setSortOrder(nextOrder)
+    setPage(1)
+    load(1, perPage, activeFilters, field, nextOrder)
+  }
+
+  function toggleSelect(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function toggleAll() {
+    setSelected((prev) => (prev.size === rows.length ? new Set() : new Set(rows.map((r) => r.id))))
+  }
+
+  async function handleBulkDelete() {
+    if (selected.size === 0) return
+    setBulkDeleting(true)
+    try {
+      const deleted = await expenseService.bulkDelete(Array.from(selected))
+      toast({ title: `${deleted} expense(s) deleted` })
+      setSelected(new Set())
+      refresh()
+    } catch (e: any) {
+      toast({ title: "Failed to delete selected expenses", description: e?.message, variant: "destructive" })
+    } finally {
+      setBulkDeleting(false)
+      setBulkDeleteConfirm(false)
+    }
   }
 
   function openCreate() {
@@ -434,6 +514,26 @@ export default function Expenses() {
   }
 
   const activeFilterChips = activeFilters ? describeFilters(activeFilters, activeEmployeeName) : []
+
+  function SortHeader({ field, label, className }: { field: SortField; label: string; className?: string }) {
+    const active = sortBy === field
+    return (
+      <TableHead className={className}>
+        <button
+          type="button"
+          onClick={() => changeSort(field)}
+          className="inline-flex items-center gap-1 hover:text-foreground"
+        >
+          {label}
+          {active ? (
+            sortOrder === "asc" ? <ArrowUp className="h-3.5 w-3.5" /> : <ArrowDown className="h-3.5 w-3.5" />
+          ) : (
+            <ArrowUpDown className="h-3.5 w-3.5 text-muted-foreground/50" />
+          )}
+        </button>
+      </TableHead>
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -837,29 +937,53 @@ export default function Expenses() {
           </div>
         </CardHeader>
         <CardContent className="overflow-x-auto">
+          {selected.size > 0 && (
+            <div className="flex items-center justify-between rounded-md border border-blue-200 bg-blue-50 px-4 py-2.5 mb-4">
+              <span className="text-sm font-medium text-blue-800">{selected.size} selected</span>
+              <div className="flex items-center gap-2">
+                <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
+                  Clear selection
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setBulkDeleteConfirm(true)}
+                  className="border-red-300 text-red-700 hover:bg-red-100"
+                >
+                  <Trash2 className="mr-2 h-4 w-4" /> Delete Selected
+                </Button>
+              </div>
+            </div>
+          )}
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Date</TableHead>
-                <TableHead>Item Name</TableHead>
+                <TableHead className="w-10">
+                  <Checkbox
+                    checked={rows.length > 0 && selected.size === rows.length}
+                    onCheckedChange={toggleAll}
+                  />
+                </TableHead>
+                <SortHeader field="expense_date" label="Date" />
+                <SortHeader field="product_name" label="Item Name" />
                 <TableHead>Employee</TableHead>
-                <TableHead>Category</TableHead>
+                <SortHeader field="category" label="Category" />
                 <TableHead>Description</TableHead>
-                <TableHead className="text-right">Amount</TableHead>
-                <TableHead>Status</TableHead>
+                <SortHeader field="amount" label="Amount" className="text-right" />
+                <SortHeader field="status" label="Status" />
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center text-muted-foreground">
+                  <TableCell colSpan={9} className="text-center text-muted-foreground">
                     Loading...
                   </TableCell>
                 </TableRow>
               ) : rows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center text-muted-foreground">
+                  <TableCell colSpan={9} className="text-center text-muted-foreground">
                     No expenses yet.
                   </TableCell>
                 </TableRow>
@@ -871,7 +995,10 @@ export default function Expenses() {
                       ? (r as any).custom_category || "Other"
                       : CATEGORIES.find((c) => c.value === r.category)?.label || r.category || "")
                   return (
-                    <TableRow key={r.id}>
+                    <TableRow key={r.id} data-state={selected.has(r.id) ? "selected" : undefined}>
+                      <TableCell>
+                        <Checkbox checked={selected.has(r.id)} onCheckedChange={() => toggleSelect(r.id)} />
+                      </TableCell>
                       <TableCell>
                         {r.expense_date || r.date ? formatDate(r.expense_date || r.date!) : "—"}
                       </TableCell>
@@ -999,6 +1126,27 @@ export default function Expenses() {
             >
               {deletingId !== null && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={bulkDeleteConfirm} onOpenChange={(open) => !open && setBulkDeleteConfirm(false)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete {selected.size} Expense{selected.size === 1 ? "" : "s"}?</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to permanently delete the {selected.size} selected expense
+              {selected.size === 1 ? "" : "s"}? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button variant="outline" onClick={() => setBulkDeleteConfirm(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleBulkDelete} disabled={bulkDeleting}>
+              {bulkDeleting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Delete Selected
             </Button>
           </DialogFooter>
         </DialogContent>

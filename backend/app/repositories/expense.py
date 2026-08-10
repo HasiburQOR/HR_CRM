@@ -1,9 +1,19 @@
-from datetime import date
+from datetime import date, datetime, timezone
 
 from sqlalchemy import func
 
 from app.repositories.base import BaseRepository
 from app.models.expense import Expense
+
+SORTABLE_FIELDS = {
+    "expense_date": Expense.expense_date,
+    "amount": Expense.amount,
+    "category": Expense.category,
+    "product_name": Expense.product_name,
+    "vendor": Expense.vendor,
+    "status": Expense.status,
+    "created_at": Expense.created_at,
+}
 
 
 class ExpenseRepository(BaseRepository[Expense]):
@@ -13,6 +23,7 @@ class ExpenseRepository(BaseRepository[Expense]):
     def get_filtered(
         self, skip: int = 0, limit: int = 100, category: str = None,
         employee_id: str = None, start_date: date = None, end_date: date = None,
+        sort_by: str = "expense_date", sort_order: str = "desc",
     ) -> tuple[list[Expense], int]:
         query = self.db.query(Expense).filter(Expense.deleted_at.is_(None))
         if category:
@@ -24,8 +35,29 @@ class ExpenseRepository(BaseRepository[Expense]):
         if end_date:
             query = query.filter(Expense.expense_date <= end_date)
         total = query.count()
-        records = query.order_by(Expense.expense_date.desc()).offset(skip).limit(limit).all()
+
+        col = SORTABLE_FIELDS.get(sort_by, Expense.expense_date)
+        order_col = col.desc() if sort_order == "desc" else col.asc()
+        # Secondary tiebreaker keeps ordering stable (and predictable) for equal values.
+        records = (
+            query.order_by(order_col, Expense.created_at.desc())
+            .offset(skip)
+            .limit(limit)
+            .all()
+        )
         return records, total
+
+    def bulk_delete(self, ids: list[str]) -> int:
+        if not ids:
+            return 0
+        now = datetime.now(timezone.utc)
+        updated = (
+            self.db.query(Expense)
+            .filter(Expense.id.in_(ids), Expense.deleted_at.is_(None))
+            .update({"deleted_at": now}, synchronize_session=False)
+        )
+        self.db.commit()
+        return updated
 
     def get_by_employee(self, employee_id: str) -> list[Expense]:
         return self.db.query(Expense).filter(
