@@ -12,6 +12,8 @@ import {
   ChevronLeft,
   ChevronRight,
   UserRound,
+  Trash2,
+  Loader2,
 } from "lucide-react"
 import { expenseService } from "@/services/expense.service"
 import type { Expense, Employee } from "@/types"
@@ -202,6 +204,10 @@ export default function Expenses() {
   const [viewEmployeeName, setViewEmployeeName] = useState("")
   const [activeEmployeeName, setActiveEmployeeName] = useState("")
 
+  // Delete
+  const [deleteConfirm, setDeleteConfirm] = useState<Expense | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
   function buildQueryParams(targetPage: number, targetPerPage: number, filters: ViewFilters | null) {
     const params: Record<string, any> = { page: targetPage, per_page: targetPerPage }
     if (filters) {
@@ -344,6 +350,22 @@ export default function Expenses() {
       refresh()
     } catch (e: any) {
       toast({ title: "Error", description: e?.message, variant: "destructive" })
+    }
+  }
+
+  async function handleDelete() {
+    if (!deleteConfirm) return
+    const id = deleteConfirm.id
+    setDeletingId(id)
+    try {
+      await expenseService.delete(id)
+      toast({ title: "Expense deleted" })
+      refresh()
+    } catch (e: any) {
+      toast({ title: "Failed to delete expense", description: e?.message, variant: "destructive" })
+    } finally {
+      setDeletingId(null)
+      setDeleteConfirm(null)
     }
   }
 
@@ -882,16 +904,27 @@ export default function Expenses() {
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right">
-                        {r.status === "pending" && (
-                          <div className="inline-flex gap-1 justify-end">
-                            <Button size="sm" variant="ghost" onClick={() => approve(r.id)}>
-                              <Check className="h-4 w-4 text-emerald-600" />
-                            </Button>
-                            <Button size="sm" variant="ghost" onClick={() => reject(r.id)}>
-                              <X className="h-4 w-4 text-destructive" />
-                            </Button>
-                          </div>
-                        )}
+                        <div className="inline-flex gap-1 justify-end">
+                          {r.status === "pending" && (
+                            <>
+                              <Button size="sm" variant="ghost" onClick={() => approve(r.id)}>
+                                <Check className="h-4 w-4 text-emerald-600" />
+                              </Button>
+                              <Button size="sm" variant="ghost" onClick={() => reject(r.id)}>
+                                <X className="h-4 w-4 text-destructive" />
+                              </Button>
+                            </>
+                          )}
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                            onClick={() => setDeleteConfirm(r)}
+                            title="Delete Expense"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   )
@@ -944,6 +977,32 @@ export default function Expenses() {
           </div>
         </div>
       </Card>
+
+      <Dialog open={!!deleteConfirm} onOpenChange={(open) => !open && setDeleteConfirm(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Expense?</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to permanently delete
+              <span className="font-semibold"> "{deleteConfirm?.product_name || deleteConfirm?.description || "this expense"}"</span>?
+              This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button variant="outline" onClick={() => setDeleteConfirm(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDelete}
+              disabled={deletingId !== null}
+            >
+              {deletingId !== null && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
