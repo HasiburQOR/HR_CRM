@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react"
+import { useEffect, useState, useMemo, useRef } from "react"
 import { useNavigate } from "react-router-dom"
 import {
   Plus,
@@ -12,6 +12,7 @@ import {
   Search,
   Inbox,
   Paperclip,
+  FileSpreadsheet,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -79,6 +80,10 @@ export default function Requisitions() {
   const [viewingLoading, setViewingLoading] = useState(false)
   const [receiptPreview, setReceiptPreview] = useState<string | null>(null)
 
+  // Excel import
+  const importRef = useRef<HTMLInputElement>(null)
+  const [importing, setImporting] = useState(false)
+
   const fetchAll = async () => {
     setLoading(true)
     try {
@@ -116,6 +121,46 @@ export default function Requisitions() {
       toast({ title: "Failed to create requisition", variant: "destructive" })
     } finally {
       setCreating(false)
+    }
+  }
+
+  const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0]
+    if (!f) return
+    setImporting(true)
+    try {
+      const { requisition, imported_rows } = await requisitionService.importExcel(f)
+      toast({
+        title: "Requisition imported",
+        description: `${requisition.title} — ${imported_rows} row(s) added`,
+      })
+      fetchAll()
+    } catch (err: any) {
+      toast({
+        title: "Import failed",
+        description: err?.response?.data?.detail || err?.message || "Could not parse the file",
+        variant: "destructive",
+      })
+    } finally {
+      setImporting(false)
+      if (importRef.current) importRef.current.value = ""
+    }
+  }
+
+  const handleDownloadTemplate = async () => {
+    try {
+      const blob = await requisitionService.downloadTemplate()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = "requisition_template.xlsx"
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.URL.revokeObjectURL(url)
+      toast({ title: "Template downloaded", description: "Fill it in and upload via Import from Excel" })
+    } catch {
+      toast({ title: "Failed to download template", variant: "destructive" })
     }
   }
 
@@ -256,10 +301,42 @@ export default function Requisitions() {
                 Manage and track all expense requisitions
               </CardDescription>
             </div>
-            <Button size="sm" onClick={() => setShowCreate(true)}>
-              <Plus className="mr-2 h-4 w-4" />
-              Create Requisition
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button size="sm" onClick={() => setShowCreate(true)}>
+                <Plus className="mr-2 h-4 w-4" />
+                Create Requisition
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={importing}
+                onClick={() => importRef.current?.click()}
+                title="Upload an Excel ledger to auto-create a requisition"
+              >
+                {importing ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <FileSpreadsheet className="mr-2 h-4 w-4" />
+                )}
+                Import from Excel
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleDownloadTemplate}
+                title="Download a blank Excel template in the correct format"
+              >
+                <Download className="mr-2 h-4 w-4" />
+                Template
+              </Button>
+              <input
+                ref={importRef}
+                type="file"
+                accept=".xlsx,.xlsm"
+                onChange={handleImportExcel}
+                className="hidden"
+              />
+            </div>
           </div>
 
           {/* Filter Row */}
@@ -545,7 +622,7 @@ export default function Requisitions() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Date</TableHead>
-                      <TableHead>Note</TableHead>
+                      <TableHead>Item Name</TableHead>
                       <TableHead className="text-right">Amount</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Receipt</TableHead>

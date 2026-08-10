@@ -16,6 +16,11 @@ class Requisition(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     closed_at = Column(DateTime, nullable=True)
     duration_days = Column(Integer, nullable=True)
+    # Header / address / period info (from Excel ledger layout)
+    address = Column(Text, nullable=True)
+    period = Column(String(255), nullable=True)
+    # Single ledger date shown in the header (Excel row 3, e.g. 2026-07-26)
+    ledger_date = Column(Date, nullable=True)
 
     expenses = relationship("RequisitionExpense", back_populates="requisition", cascade="all, delete-orphan")
 
@@ -29,6 +34,11 @@ class RequisitionExpense(Base):
     notes = Column(Text, nullable=True)
     amount = Column(Float, nullable=False)
     receipt_url = Column(String(500), nullable=True)
+    # Ledger-style detail columns (from Excel: Item / Qty / Value)
+    # qty is TEXT to preserve values like "1 Pc", "6 Set", "200 gm"
+    vendor = Column(String(255), nullable=True)
+    department = Column(String(100), nullable=True)
+    qty = Column(String(50), nullable=True)
     # Approval workflow: each expense must be manually approved/rejected by an admin
     status = Column(String(20), nullable=False, default="pending")  # "pending" | "approved" | "rejected"
     approved_by = Column(String(36), ForeignKey("users.id"), nullable=True)

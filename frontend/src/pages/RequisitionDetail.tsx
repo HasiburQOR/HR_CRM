@@ -65,6 +65,9 @@ export default function RequisitionDetail() {
   const [expenseDate, setExpenseDate] = useState(() => new Date().toISOString().split("T")[0])
   const [file, setFile] = useState<File | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [vendor, setVendor] = useState("")
+  const [department, setDepartment] = useState("")
+  const [qty, setQty] = useState("")
 
   // Inline title editing
   const [editingTitle, setEditingTitle] = useState(false)
@@ -96,12 +99,18 @@ export default function RequisitionDetail() {
         note: note || undefined,
         amount: parseFloat(amount),
         expense_date: expenseDate || undefined,
+        vendor: vendor || undefined,
+        department: department || undefined,
+        qty: qty || undefined,
         receipt: file || undefined,
       })
       toast({ title: "Expense added" })
       setNote("")
       setAmount("")
       setExpenseDate(new Date().toISOString().split("T")[0])
+      setVendor("")
+      setDepartment("")
+      setQty("")
       setFile(null)
       if (fileRef.current) fileRef.current.value = ""
       fetchReq()
@@ -164,7 +173,7 @@ export default function RequisitionDetail() {
     }
     setSavingTitle(true)
     try {
-      await requisitionService.update(id, trimmed)
+      await requisitionService.update(id, trimmed, req.address || undefined, req.period || undefined, req.ledger_date || undefined)
       toast({ title: "Title updated" })
       setEditingTitle(false)
       fetchReq()
@@ -389,6 +398,19 @@ export default function RequisitionDetail() {
                   : "Pending"}
               </p>
             </div>
+            {(req.address || req.period || req.ledger_date) && (
+              <div className="rounded-md border bg-muted/30 px-4 py-3">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                  Address / Date
+                </p>
+                <p className="text-sm font-semibold mt-1">
+                  {req.ledger_date && <span>{req.ledger_date}</span>}
+                  {req.address && <span>{req.address}</span>}
+                  {req.address && req.period && <span className="text-muted-foreground"> · </span>}
+                  {req.period && <span>{req.period}</span>}
+                </p>
+              </div>
+            )}
             <div className="rounded-md border bg-muted/30 px-4 py-3">
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
                 Total Expenses
@@ -422,6 +444,43 @@ export default function RequisitionDetail() {
                 />
               </div>
 
+              {/* Vendor */}
+              <div>
+                <label className="text-sm font-medium text-muted-foreground mb-1.5 block">
+                  Vendor
+                </label>
+                <Input
+                  placeholder="Vendor / Supplier"
+                  value={vendor}
+                  onChange={(e) => setVendor(e.target.value)}
+                />
+              </div>
+
+              {/* Department */}
+              <div>
+                <label className="text-sm font-medium text-muted-foreground mb-1.5 block">
+                  Department
+                </label>
+                <Input
+                  placeholder="Department / Category"
+                  value={department}
+                  onChange={(e) => setDepartment(e.target.value)}
+                />
+              </div>
+
+              {/* Qty */}
+              <div>
+                <label className="text-sm font-medium text-muted-foreground mb-1.5 block">
+                  Qty
+                </label>
+                <Input
+                  type="text"
+                  placeholder="e.g. 1 Pc, 6 Set"
+                  value={qty}
+                  onChange={(e) => setQty(e.target.value)}
+                />
+              </div>
+
               {/* Amount */}
               <div>
                 <label className="text-sm font-medium text-muted-foreground mb-1.5 block">
@@ -442,13 +501,13 @@ export default function RequisitionDetail() {
                 </div>
               </div>
 
-              {/* Note - spans 2 columns */}
-              <div className="md:col-span-2">
+              {/* Item Name - spans full width */}
+              <div className="md:col-span-4">
                 <label className="text-sm font-medium text-muted-foreground mb-1.5 block">
-                  Note
+                  Item Name
                 </label>
                 <Textarea
-                  placeholder="Optional note..."
+                  placeholder="e.g. Laptop, Office Chair, etc."
                   value={note}
                   onChange={(e) => setNote(e.target.value)}
                   rows={1}
@@ -527,7 +586,10 @@ export default function RequisitionDetail() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Date</TableHead>
-                  <TableHead>Note</TableHead>
+                  <TableHead>Vendor</TableHead>
+                  <TableHead>Department</TableHead>
+                  <TableHead className="text-right">Qty</TableHead>
+                  <TableHead>Item Name</TableHead>
                   <TableHead className="text-right">Amount</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Receipt</TableHead>
@@ -537,7 +599,7 @@ export default function RequisitionDetail() {
               <TableBody>
                 {(!req.expenses || req.expenses.length === 0) ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="h-40">
+                    <TableCell colSpan={9} className="h-40">
                       <div className="flex flex-col items-center justify-center text-muted-foreground">
                         <Receipt className="h-10 w-10 mb-2 opacity-40" />
                         <p className="text-sm">No expenses added yet.</p>
@@ -547,13 +609,18 @@ export default function RequisitionDetail() {
                 ) : (
                   req.expenses.map((exp: RequisitionExpense) => (
                     <TableRow key={exp.id}>
-                      <TableCell className="text-sm text-muted-foreground">
+                      <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
                         {exp.expense_date
                           ? new Date(exp.expense_date + "T00:00:00").toLocaleDateString()
                           : "—"}
                       </TableCell>
-                      <TableCell>{exp.notes || "—"}</TableCell>
-                      <TableCell className="text-right font-medium">
+                      <TableCell className="text-sm">{exp.vendor || "—"}</TableCell>
+                      <TableCell className="text-sm">{exp.department || "—"}</TableCell>
+                      <TableCell className="text-right text-sm text-muted-foreground">
+                        {exp.qty != null ? exp.qty : "—"}
+                      </TableCell>
+                      <TableCell className="text-sm max-w-xs">{exp.notes || "—"}</TableCell>
+                      <TableCell className="text-right font-medium whitespace-nowrap">
                         {fmtCurrency(exp.amount)}
                       </TableCell>
                       <TableCell>{statusBadge(exp.status)}</TableCell>

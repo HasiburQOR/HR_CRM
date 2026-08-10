@@ -14,6 +14,7 @@ from app.models.salary import Salary
 from app.models.expense import Expense
 from app.models.leave import LeaveRequest
 from app.models.inventory import InventoryItem
+from app.models.requisition import Requisition, RequisitionExpense
 from app.utils.dependencies import get_current_user
 
 router = APIRouter(prefix="/reports", tags=["reports"])
@@ -298,6 +299,58 @@ def report_expenses(
         output,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": "attachment; filename=expenses_report.xlsx"}
+    )
+
+
+@router.get("/requisitions")
+def report_requisitions(
+    db: Session = Depends(get_db),
+    current_user: Any = Depends(get_current_user),
+    date: str | None = Query(None),
+    start_date: str | None = Query(None),
+    end_date: str | None = Query(None),
+    requisition_id: str | None = Query(None),
+    period: str | None = Query(None),
+    period_value: str | None = Query(None),
+    year: int | None = Query(None),
+    month: str | None = Query(None),
+):
+    q = db.query(RequisitionExpense, Requisition).join(
+        Requisition, RequisitionExpense.requisition_id == Requisition.id
+    )
+    q = _apply_period_filters(q, RequisitionExpense.expense_date,
+                              period=period,
+                              period_value=period_value,
+                              year=year,
+                              month=month,
+                              day=None,
+                              start_date=start_date,
+                              end_date=end_date,
+                              specific_date=date)
+    if requisition_id and requisition_id != "all":
+        q = q.filter(RequisitionExpense.requisition_id == requisition_id)
+
+    records = q.order_by(RequisitionExpense.expense_date.desc()).all()
+    data = [
+        {
+            "Requisition": r.title,
+            "Requisition Status": r.status,
+            "Ledger Date": str(r.ledger_date) if r.ledger_date else "",
+            "Vendor": ex.vendor or "",
+            "Department": ex.department or "",
+            "Item": ex.notes or "",
+            "Qty": ex.qty or "",
+            "Amount (BDT)": ex.amount,
+            "Expense Date": str(ex.expense_date) if ex.expense_date else "",
+            "Approval Status": ex.status or "pending",
+        }
+        for ex, r in records
+    ]
+    output = _to_excel(data, "Requisitions")
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=requisitions_report.xlsx"}
     )
 
 

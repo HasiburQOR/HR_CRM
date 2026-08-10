@@ -20,3 +20,7 @@ class Expense(BaseModel):
     approved_by = Column(String(36), ForeignKey("users.id"), nullable=True)
     rejected_by = Column(String(36), ForeignKey("users.id"), nullable=True)
     deleted_at = Column(DateTime(timezone=True), nullable=True)
+    # Ledger-style detail columns (from Excel import: Vendor / Department / Qty)
+    vendor = Column(String(255), nullable=True)
+    department = Column(String(100), nullable=True)
+    qty = Column(String(50), nullable=True)

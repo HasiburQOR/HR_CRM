@@ -65,6 +65,34 @@ def _add_column_if_missing(conn, table: str, column: str, definition: str) -> No
         conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {definition}"))
 
 
+def _ensure_column_type(conn, table: str, column: str, expected_types: tuple[str, ...]) -> None:
+    """If a column exists but has an unexpected data type, ALTER it.
+    *expected_types* is a tuple of acceptable ``information_schema.data_type``
+    values (e.g. ``('character varying', 'text')``).  If the column's type is
+    NOT in that set, we change it (Postgres only).
+    """
+    if _is_sqlite():
+        return  # SQLite has loose type affinity — strings store fine anywhere.
+    rows = conn.execute(
+        text(
+            "SELECT data_type FROM information_schema.columns "
+            "WHERE table_name = :table AND column_name = :column"
+        ),
+        {"table": table, "column": column},
+    ).fetchall()
+    if not rows:
+        return  # column doesn't exist yet; _add_column_if_missing handles it
+    current_type = rows[0][0]
+    if current_type not in expected_types:
+        # Cast existing values to text so nothing is lost.
+        conn.execute(
+            text(
+                f"ALTER TABLE {table} ALTER COLUMN {column} "
+                f"TYPE VARCHAR(50) USING {column}::varchar(50)"
+            )
+        )
+
+
 def _rebuild_reminders_table_sqlite(conn) -> None:
     try:
         existing_rows = conn.execute(text("PRAGMA table_info(reminders)")).fetchall()
@@ -121,6 +149,10 @@ def _run_sqlite_migrations() -> None:
         with engine.connect() as conn:
             _add_column_if_missing(conn, "expenses", "custom_category", "VARCHAR(200)")
             _add_column_if_missing(conn, "expenses", "rejected_by", "VARCHAR(36)")
+            # Expense ledger detail columns (from Excel import format)
+            _add_column_if_missing(conn, "expenses", "vendor", "VARCHAR(255)")
+            _add_column_if_missing(conn, "expenses", "department", "VARCHAR(100)")
+            _add_column_if_missing(conn, "expenses", "qty", "VARCHAR(50)")
 
             _add_column_if_missing(conn, "attendances", "approved_by", "VARCHAR(36)")
             _add_column_if_missing(conn, "attendances", "rejected_by", "VARCHAR(36)")
@@ -130,6 +162,16 @@ def _run_sqlite_migrations() -> None:
             _add_column_if_missing(conn, "requisition_expenses", "approved_by", "VARCHAR(36)")
             _add_column_if_missing(conn, "requisition_expenses", "rejected_by", "VARCHAR(36)")
             _add_column_if_missing(conn, "requisition_expenses", "updated_at", "DATETIME")
+
+            # Requisition ledger fields (Excel import format)
+            _add_column_if_missing(conn, "requisitions", "address", "TEXT")
+            _add_column_if_missing(conn, "requisitions", "period", "VARCHAR(255)")
+            _add_column_if_missing(conn, "requisitions", "ledger_date", "DATE")
+            _add_column_if_missing(conn, "requisition_expenses", "vendor", "VARCHAR(255)")
+            _add_column_if_missing(conn, "requisition_expenses", "department", "VARCHAR(100)")
+            _add_column_if_missing(conn, "requisition_expenses", "qty", "VARCHAR(50)")
+            # If qty was created as FLOAT in an earlier run, SQLite won't ALTER COLUMN
+            # type easily — values still store fine as text, so just leave it.
 
             _add_column_if_missing(conn, "salaries", "basic_salary", "FLOAT DEFAULT 0.0")
             _add_column_if_missing(conn, "salaries", "month", "VARCHAR(20) DEFAULT ''")
@@ -169,12 +211,33 @@ def _run_postgres_migrations() -> None:
     if _is_sqlite():
         return
     with engine.connect() as conn:
+        # Expense ledger detail columns (from Excel import format)
+        try:
+            _add_column_if_missing(conn, "expenses", "vendor", "VARCHAR(255)")
+            _add_column_if_missing(conn, "expenses", "department", "VARCHAR(100)")
+            _add_column_if_missing(conn, "expenses", "qty", "VARCHAR(50)")
+            conn.commit()
+        except Exception:
+            pass
+
         # Requisition expense approval workflow (must run first & commit independently)
         try:
             _add_column_if_missing(conn, "requisition_expenses", "status", "VARCHAR(20) DEFAULT 'pending'")
             _add_column_if_missing(conn, "requisition_expenses", "approved_by", "VARCHAR(36)")
             _add_column_if_missing(conn, "requisition_expenses", "rejected_by", "VARCHAR(36)")
             _add_column_if_missing(conn, "requisition_expenses", "updated_at", "TIMESTAMP")
+            # Requisition ledger fields (Excel import format)
+            _add_column_if_missing(conn, "requisitions", "address", "TEXT")
+            _add_column_if_missing(conn, "requisitions", "period", "VARCHAR(255)")
+            _add_column_if_missing(conn, "requisitions", "ledger_date", "DATE")
+            _add_column_if_missing(conn, "requisition_expenses", "vendor", "VARCHAR(255)")
+            _add_column_if_missing(conn, "requisition_expenses", "department", "VARCHAR(100)")
+            _add_column_if_missing(conn, "requisition_expenses", "qty", "VARCHAR(50)")
+            # qty was originally created as FLOAT/double precision in an earlier
+            # version of the model.  _add_column_if_missing sees the column exists
+            # and skips it — but the type stays wrong, causing inserts of "1 Pc"
+            # etc. to crash in Postgres.  Force-correct the type to VARCHAR(50).
+            _ensure_column_type(conn, "requisition_expenses", "qty", ("character varying", "text"))
             conn.commit()
         except Exception:
             pass

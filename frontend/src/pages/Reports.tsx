@@ -12,6 +12,7 @@ import {
   UserRound,
   Package,
   UtensilsCrossed,
+  ClipboardList,
 } from "lucide-react"
 import { reportsService, type PeriodMode, type ReportFilterParams } from "@/services/reports.service"
 import { employeeService } from "@/services/employee.service"
@@ -45,7 +46,7 @@ import {
 } from "@/components/ui/tabs"
 import { useToast } from "@/components/ui/useToast"
 
-type ReportKey = "employees" | "attendance" | "salary" | "expenses" | "inventory" | "lunch"
+type ReportKey = "employees" | "attendance" | "salary" | "expenses" | "requisitions" | "inventory" | "lunch"
 
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)
@@ -222,6 +223,14 @@ export default function Reports() {
         return reportsService.downloadSalary(params)
       case "expenses":
         return reportsService.downloadExpenses(params)
+      case "requisitions":
+        return reportsService.downloadRequisitions({
+          period: params.period,
+          period_value: params.period_value,
+          date: params.date,
+          start_date: params.start_date,
+          end_date: params.end_date,
+        })
       case "inventory":
         return reportsService.downloadInventory({
           employee_id: params.employee_id ? params.employee_id : undefined,
@@ -263,6 +272,7 @@ export default function Reports() {
       attendance: "Attendance Report",
       salary: "Salary / Payroll Report",
       expenses: "Expenses Report",
+      requisitions: "Requisitions Report",
       inventory: "Inventory Report",
       lunch: "Lunch Report",
     }
@@ -278,7 +288,7 @@ export default function Reports() {
         </p>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <ReportCard
           title="Employees Report"
           description="All employee records (NID, DOB, Salary)"
@@ -310,6 +320,14 @@ export default function Reports() {
           iconBg="bg-rose-600"
           onConfigure={() => openConfigure("expenses")}
           onQuickDownload={() => doQuickDownload("expenses")}
+        />
+        <ReportCard
+          title="Requisitions Report"
+          description="Requisition ledger entries, filterable by period"
+          icon={ClipboardList}
+          iconBg="bg-indigo-600"
+          onConfigure={() => openConfigure("requisitions")}
+          onQuickDownload={() => doQuickDownload("requisitions")}
         />
         <ReportCard
           title="Inventory Report"
@@ -430,33 +448,43 @@ export default function Reports() {
               </Tabs>
             </div>
 
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="r_emp">Employee (optional)</Label>
-                {dialog.employee_id ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 px-2 text-xs text-muted-foreground"
-                    onClick={() => setDialog((d) => ({ ...d, employee_id: "" }))}
-                  >
-                    <UserRound className="h-3 w-3 mr-1" /> Reset to all
-                  </Button>
-                ) : (
-                  <Badge variant="outline" className="text-xs font-normal">
-                    All employees
-                  </Badge>
-                )}
+            {dialog.reportKey !== "requisitions" && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="r_emp">Employee (optional)</Label>
+                  {dialog.employee_id ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs text-muted-foreground"
+                      onClick={() => setDialog((d) => ({ ...d, employee_id: "" }))}
+                    >
+                      <UserRound className="h-3 w-3 mr-1" /> Reset to all
+                    </Button>
+                  ) : (
+                    <Badge variant="outline" className="text-xs font-normal">
+                      All employees
+                    </Badge>
+                  )}
+                </div>
+                <EmployeeSelect
+                  value={dialog.employee_id}
+                  onValueChange={(id) => setDialog((d) => ({ ...d, employee_id: id }))}
+                  employees={employees}
+                  includeInactive
+                  placeholder={empLoading ? "Loading employees…" : "Search to filter by ID or name (leave empty = all)"}
+                />
               </div>
-              <EmployeeSelect
-                value={dialog.employee_id}
-                onValueChange={(id) => setDialog((d) => ({ ...d, employee_id: id }))}
-                employees={employees}
-                includeInactive
-                placeholder={empLoading ? "Loading employees…" : "Search to filter by ID or name (leave empty = all)"}
-              />
-            </div>
+            )}
+
+            {dialog.reportKey === "requisitions" && (
+              <div className="rounded-lg border bg-slate-50 p-3 text-xs text-slate-600 flex items-start gap-2">
+                <FileText className="h-4 w-4 mt-0.5 text-slate-500" />
+                Requisition line items aren't tied to a single employee, so this report isn't filterable by employee —
+                use the period filter above to narrow results.
+              </div>
+            )}
 
             {dialog.reportKey === "employees" && (
               <div className="rounded-lg border bg-slate-50 p-3 text-xs text-slate-600 flex items-start gap-2">

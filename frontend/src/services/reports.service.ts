@@ -34,6 +34,11 @@ export const reportsService = {
     return res.data
   },
 
+  async downloadRequisitions(params: ReportFilterParams = {}): Promise<Blob> {
+    const res = await api.get("/reports/requisitions", { params, responseType: "blob" })
+    return res.data
+  },
+
   async downloadInventory(params: {
     category?: string
     item_type?: string

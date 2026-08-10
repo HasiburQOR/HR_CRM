@@ -228,6 +228,9 @@ export interface RequisitionExpense {
   notes?: string | null
   amount: number
   receipt_url?: string | null
+  vendor?: string | null
+  department?: string | null
+  qty?: string | null
   status?: string
   approved_by?: string | null
   rejected_by?: string | null
@@ -243,6 +246,9 @@ export interface Requisition {
   created_at?: string | null
   closed_at?: string | null
   duration_days?: number | null
+  address?: string | null
+  period?: string | null
+  ledger_date?: string | null
   expenses?: RequisitionExpense[]
   [key: string]: any
 }

@@ -53,4 +53,29 @@ export const expenseService = {
     const res = await api.post<ApiResponse<Expense>>(`/expenses/${id}/reject`, { notes })
     return res.data.data
   },
+
+  async downloadTemplate(): Promise<Blob> {
+    const res = await api.get("/expenses/template", { responseType: "blob" })
+    return res.data as unknown as Blob
+  },
+
+  async importExcel(file: File): Promise<{ imported_rows: number; title: string }> {
+    const form = new FormData()
+    form.append("file", file)
+    const res = await api.post("/expenses/import-excel", form)
+    return {
+      imported_rows: (res.data as any).imported_rows ?? 0,
+      title: (res.data as any).title ?? "Expense Ledger",
+    }
+  },
+
+  async downloadExcel(params?: {
+    category?: string
+    employee_id?: string
+    start_date?: string
+    end_date?: string
+  }): Promise<Blob> {
+    const res = await api.get("/expenses/download-excel", { params, responseType: "blob" })
+    return res.data as unknown as Blob
+  },
 }
