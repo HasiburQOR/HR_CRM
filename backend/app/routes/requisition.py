@@ -13,7 +13,7 @@ from openpyxl.utils import get_column_letter
 
 from app.database import get_db
 from app.models.requisition import Requisition, RequisitionExpense
-from app.utils.dependencies import get_current_user, require_admin
+from app.utils.dependencies import require_admin
 
 router = APIRouter(prefix="/requisitions", tags=["Requisitions"])
 
@@ -65,7 +65,7 @@ def create_requisition(
     period: str = Form(None),
     ledger_date: date_type = Form(None),
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_admin),
 ):
     req = Requisition(
         id=str(uuid.uuid4()),
@@ -82,13 +82,13 @@ def create_requisition(
 
 
 @router.get("")
-def list_requisitions(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+def list_requisitions(db: Session = Depends(get_db), current_user=Depends(require_admin)):
     rows = db.query(Requisition).order_by(Requisition.created_at.desc()).all()
     return {"success": True, "data": [_req_to_dict(r) for r in rows]}
 
 
 @router.get("/template")
-def download_template(current_user=Depends(get_current_user)):
+def download_template(current_user=Depends(require_admin)):
     """Return a BLANK Excel file in the Bin Omor layout so users know the exact
     format to fill in before uploading via the Import button."""
     wb = Workbook()
@@ -164,7 +164,7 @@ def download_template(current_user=Depends(get_current_user)):
 
 
 @router.get("/{req_id}")
-def get_requisition(req_id: str, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+def get_requisition(req_id: str, db: Session = Depends(get_db), current_user=Depends(require_admin)):
     req = db.query(Requisition).filter(Requisition.id == req_id).first()
     if not req:
         raise HTTPException(404, "Requisition not found")
@@ -183,7 +183,7 @@ def edit_requisition(
     period: str = Form(None),
     ledger_date: date_type = Form(None),
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_admin),
 ):
     req = db.query(Requisition).filter(Requisition.id == req_id).first()
     if not req:
@@ -205,7 +205,7 @@ def edit_requisition(
 # ─── Close ───────────────────────────────────────────────────────
 
 @router.put("/{req_id}/close")
-def close_requisition(req_id: str, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+def close_requisition(req_id: str, db: Session = Depends(get_db), current_user=Depends(require_admin)):
     req = db.query(Requisition).filter(Requisition.id == req_id).first()
     if not req:
         raise HTTPException(404, "Requisition not found")
@@ -227,7 +227,7 @@ def close_requisition(req_id: str, db: Session = Depends(get_db), current_user=D
 # ─── Reopen ──────────────────────────────────────────────────────
 
 @router.put("/{req_id}/reopen")
-def reopen_requisition(req_id: str, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+def reopen_requisition(req_id: str, db: Session = Depends(get_db), current_user=Depends(require_admin)):
     req = db.query(Requisition).filter(Requisition.id == req_id).first()
     if not req:
         raise HTTPException(404, "Requisition not found")
@@ -256,7 +256,7 @@ async def add_expense(
     qty: str = Form(None),
     receipt: UploadFile = File(None),
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_admin),
 ):
     req = db.query(Requisition).filter(Requisition.id == req_id).first()
     if not req:
@@ -340,7 +340,7 @@ def reject_expense(
 # ─── Serve Receipt Files ─────────────────────────────────────────
 
 @router.get("/receipts/{filename}")
-def serve_receipt(filename: str, current_user=Depends(get_current_user)):
+def serve_receipt(filename: str, current_user=Depends(require_admin)):
     filepath = os.path.join(UPLOAD_DIR, filename)
     if not os.path.isfile(filepath):
         raise HTTPException(404, "Receipt not found")
@@ -582,7 +582,7 @@ def _build_ledger_excel(req: Requisition, db: Session) -> bytes:
 def download_single_requisition(
     req_id: str,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_admin),
 ):
     """Export a single requisition as a BIN OMOR TRADERS-style Excel ledger."""
     req = db.query(Requisition).filter(Requisition.id == req_id).first()
@@ -610,7 +610,7 @@ class BulkDownloadRequest(BaseModel):
 def download_bulk(
     payload: BulkDownloadRequest,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_admin),
 ):
     reqs = db.query(Requisition).filter(Requisition.id.in_(payload.ids)).all()
     if not reqs:
@@ -840,7 +840,7 @@ def _parse_import_workbook(wb):
 async def import_excel(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_admin),
 ):
     """Upload an Excel ledger (.xlsx) and auto-create a requisition with all rows."""
     if not file.filename or not file.filename.lower().endswith((".xlsx", ".xlsm")):

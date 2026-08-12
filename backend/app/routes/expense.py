@@ -17,7 +17,7 @@ from openpyxl.utils import get_column_letter
 from app.database import get_db
 from app.services.expense import ExpenseService
 from app.schemas.expense import ExpenseCreate, ExpenseUpdate
-from app.utils.dependencies import get_current_user, require_admin
+from app.utils.dependencies import require_admin
 from app.utils.response import success_response, paginated_response
 from app.models.expense import Expense
 from app.models.employee import Employee
@@ -78,7 +78,7 @@ def list_expenses(
     sort_by: str = Query("expense_date"),
     sort_order: str = Query("desc"),
     db: Session = Depends(get_db),
-    current_user: Any = Depends(get_current_user),
+    current_user: Any = Depends(require_admin),
 ):
     service = ExpenseService(db)
     skip = (page - 1) * per_page
@@ -103,7 +103,7 @@ class BulkDeleteRequest(BaseModel):
 def bulk_delete_expenses(
     data: BulkDeleteRequest,
     db: Session = Depends(get_db),
-    current_user: Any = Depends(get_current_user),
+    current_user: Any = Depends(require_admin),
 ):
     service = ExpenseService(db)
     deleted = service.bulk_delete(data.ids)
@@ -115,14 +115,14 @@ def get_expense_summary(
     start_date: date = Query(...),
     end_date: date = Query(...),
     db: Session = Depends(get_db),
-    current_user: Any = Depends(get_current_user),
+    current_user: Any = Depends(require_admin),
 ):
     service = ExpenseService(db)
     return success_response(data=service.get_summary(start_date, end_date))
 
 
 @router.get("/template")
-def download_expense_template(current_user: Any = Depends(get_current_user)):
+def download_expense_template(current_user: Any = Depends(require_admin)):
     """Return a BLANK Excel file in the BIN OMOR TRADERS Expense Ledger layout
     so users know the exact format to fill in before uploading via Import."""
     wb = Workbook()
@@ -439,7 +439,7 @@ def _parse_expense_workbook(wb):
 async def import_expense_excel(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    current_user: Any = Depends(get_current_user),
+    current_user: Any = Depends(require_admin),
 ):
     """Upload an Excel expense ledger (.xlsx) and bulk-import all rows as
     standalone Expense records."""
@@ -605,7 +605,7 @@ def download_expense_excel(
     start_date: date = Query(None),
     end_date: date = Query(None),
     db: Session = Depends(get_db),
-    current_user: Any = Depends(get_current_user),
+    current_user: Any = Depends(require_admin),
 ):
     """Export all expenses (optionally filtered) as a BIN OMOR TRADERS-style Excel ledger."""
     service = ExpenseService(db)
@@ -626,7 +626,7 @@ def download_expense_excel(
 def get_expense(
     expense_id: str,
     db: Session = Depends(get_db),
-    current_user: Any = Depends(get_current_user),
+    current_user: Any = Depends(require_admin),
 ):
     service = ExpenseService(db)
     ex = service.get_by_id(expense_id)
@@ -638,7 +638,7 @@ def get_expense(
 def create_expense(
     data: ExpenseCreate,
     db: Session = Depends(get_db),
-    current_user: Any = Depends(get_current_user),
+    current_user: Any = Depends(require_admin),
 ):
     service = ExpenseService(db)
     payload = data.model_dump(exclude_unset=False)
@@ -658,7 +658,7 @@ def update_expense(
     expense_id: str,
     data: ExpenseUpdate,
     db: Session = Depends(get_db),
-    current_user: Any = Depends(get_current_user),
+    current_user: Any = Depends(require_admin),
 ):
     service = ExpenseService(db)
     update_data = data.model_dump(exclude_unset=True)
@@ -673,7 +673,7 @@ def update_expense(
 def delete_expense(
     expense_id: str,
     db: Session = Depends(get_db),
-    current_user: Any = Depends(get_current_user),
+    current_user: Any = Depends(require_admin),
 ):
     service = ExpenseService(db)
     service.delete(expense_id)

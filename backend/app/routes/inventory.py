@@ -10,7 +10,7 @@ import openpyxl
 from app.database import get_db
 from app.services.inventory import InventoryService
 from app.schemas.inventory import InventoryCreate, InventoryUpdate, InventoryAssign
-from app.utils.dependencies import get_current_user
+from app.utils.dependencies import require_admin
 from app.utils.response import success_response, paginated_response
 from app.models.inventory import InventoryItem
 from app.models.employee import Employee
@@ -65,7 +65,7 @@ def list_inventory(
     assigned: bool | None = Query(None),
     low_stock: bool = Query(False),
     db: Session = Depends(get_db),
-    current_user: Any = Depends(get_current_user),
+    current_user: Any = Depends(require_admin),
 ):
     service = InventoryService(db)
     skip = (page - 1) * per_page
@@ -85,7 +85,7 @@ def list_inventory(
 @router.get("/stats")
 def inventory_stats(
     db: Session = Depends(get_db),
-    current_user: Any = Depends(get_current_user),
+    current_user: Any = Depends(require_admin),
 ):
     service = InventoryService(db)
     return success_response(data=service.get_stats())
@@ -94,7 +94,7 @@ def inventory_stats(
 @router.get("/categories")
 def inventory_categories(
     db: Session = Depends(get_db),
-    current_user: Any = Depends(get_current_user),
+    current_user: Any = Depends(require_admin),
 ):
     service = InventoryService(db)
     return success_response(data=service.get_categories())
@@ -110,7 +110,7 @@ def export_inventory(
     assigned: bool | None = Query(None),
     low_stock: bool = Query(False),
     db: Session = Depends(get_db),
-    current_user: Any = Depends(get_current_user),
+    current_user: Any = Depends(require_admin),
 ):
     service = InventoryService(db)
     records, _ = service.get_filtered(
@@ -174,7 +174,7 @@ def export_inventory(
 def get_inventory(
     item_id: str,
     db: Session = Depends(get_db),
-    current_user: Any = Depends(get_current_user),
+    current_user: Any = Depends(require_admin),
 ):
     service = InventoryService(db)
     it = service.get_by_id(item_id)
@@ -186,7 +186,7 @@ def get_inventory(
 def create_inventory(
     data: InventoryCreate,
     db: Session = Depends(get_db),
-    current_user: Any = Depends(get_current_user),
+    current_user: Any = Depends(require_admin),
 ):
     service = InventoryService(db)
     payload = data.model_dump(exclude_unset=False)
@@ -205,7 +205,7 @@ def update_inventory(
     item_id: str,
     data: InventoryUpdate,
     db: Session = Depends(get_db),
-    current_user: Any = Depends(get_current_user),
+    current_user: Any = Depends(require_admin),
 ):
     service = InventoryService(db)
     update_data = data.model_dump(exclude_unset=True)
@@ -230,7 +230,7 @@ def update_inventory(
 def delete_inventory(
     item_id: str,
     db: Session = Depends(get_db),
-    current_user: Any = Depends(get_current_user),
+    current_user: Any = Depends(require_admin),
 ):
     service = InventoryService(db)
     service.delete(item_id)
@@ -242,7 +242,7 @@ def assign_inventory(
     item_id: str,
     payload: InventoryAssign,
     db: Session = Depends(get_db),
-    current_user: Any = Depends(get_current_user),
+    current_user: Any = Depends(require_admin),
 ):
     service = InventoryService(db)
     assigned_at = payload.assigned_at or date.today()
@@ -256,7 +256,7 @@ def assign_inventory(
 def unassign_inventory(
     item_id: str,
     db: Session = Depends(get_db),
-    current_user: Any = Depends(get_current_user),
+    current_user: Any = Depends(require_admin),
 ):
     service = InventoryService(db)
     it = service.unassign(item_id)

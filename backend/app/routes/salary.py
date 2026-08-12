@@ -6,7 +6,7 @@ from app.database import get_db
 from app.models.salary import Salary
 from app.models.employee import Employee
 from app.schemas.salary import SalaryCreate, SalaryUpdate
-from app.utils.dependencies import get_current_user, require_admin
+from app.utils.dependencies import require_admin
 from app.utils.response import success_response, paginated_response
 from app.services.salary import SalaryService
 
@@ -74,7 +74,7 @@ def list_salaries(
     year: int | None = None,
     employee_id: str | None = None,
     db: Session = Depends(get_db),
-    current_user: Any = Depends(get_current_user),
+    current_user: Any = Depends(require_admin),
 ):
     query = db.query(Salary, Employee).outerjoin(Employee, Salary.employee_id == Employee.id)
 
@@ -97,7 +97,7 @@ def list_salaries(
 
 
 @router.get("/{salary_id}")
-def get_salary(salary_id: str, db: Session = Depends(get_db), current_user: Any = Depends(get_current_user)):
+def get_salary(salary_id: str, db: Session = Depends(get_db), current_user: Any = Depends(require_admin)):
     sal = db.query(Salary).filter(Salary.id == salary_id).first()
     if not sal:
         raise HTTPException(status_code=404, detail="Salary record not found")
@@ -106,7 +106,7 @@ def get_salary(salary_id: str, db: Session = Depends(get_db), current_user: Any 
 
 
 @router.post("")
-def create_salary(data: SalaryCreate, db: Session = Depends(get_db), current_user: Any = Depends(get_current_user)):
+def create_salary(data: SalaryCreate, db: Session = Depends(get_db), current_user: Any = Depends(require_admin)):
     payload = data.model_dump()
     if not payload.get("net_salary"):
         payload["net_salary"] = _calc_net(payload)
@@ -118,7 +118,7 @@ def create_salary(data: SalaryCreate, db: Session = Depends(get_db), current_use
 
 
 @router.put("/{salary_id}")
-def update_salary(salary_id: str, data: SalaryUpdate, db: Session = Depends(get_db), current_user: Any = Depends(get_current_user)):
+def update_salary(salary_id: str, data: SalaryUpdate, db: Session = Depends(get_db), current_user: Any = Depends(require_admin)):
     update_data = data.model_dump(exclude_unset=True)
     if not update_data:
         raise HTTPException(status_code=400, detail="No data to update")
@@ -189,7 +189,7 @@ def mark_salary_paid(salary_id: str, db: Session = Depends(get_db), current_user
 
 
 @router.delete("/{salary_id}")
-def delete_salary(salary_id: str, db: Session = Depends(get_db), current_user: Any = Depends(get_current_user)):
+def delete_salary(salary_id: str, db: Session = Depends(get_db), current_user: Any = Depends(require_admin)):
     sal = db.query(Salary).filter(Salary.id == salary_id).first()
     if sal:
         db.delete(sal)

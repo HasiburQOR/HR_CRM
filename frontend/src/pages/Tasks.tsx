@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { Plus, Pencil, Trash2 } from "lucide-react"
+import { Plus, Pencil, Trash2, UserCircle } from "lucide-react"
 import { taskService } from "@/services/task.service"
 import { employeeService } from "@/services/employee.service"
 import type { Task, Employee } from "@/types"
@@ -44,6 +44,7 @@ import {
 import { useToast } from "@/components/ui/useToast"
 import { formatDate } from "@/lib/utils"
 import { EmployeeSelect } from "@/components/EmployeeSelect"
+import { useAuth } from "@/contexts/AuthContext"
 
 const statusVariant = (s: string) => {
   const map: Record<string, any> = {
@@ -59,6 +60,8 @@ const PRIORITIES = ["low", "medium", "high", "urgent"]
 const STATUSES = ["pending", "in_progress", "completed", "cancelled"]
 
 export default function Tasks() {
+  const { user } = useAuth()
+  const isEmployee = user?.role === "employee"
   const [rows, setRows] = useState<Task[]>([])
   const [employees, setEmployees] = useState<Employee[]>([])
   const [loading, setLoading] = useState(true)
@@ -70,7 +73,7 @@ export default function Tasks() {
 
   useEffect(() => {
     load()
-    loadEmployees()
+    if (!isEmployee) loadEmployees()
   }, [])
 
   async function load() {
@@ -157,9 +160,13 @@ export default function Tasks() {
         <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold tracking-tight">Tasks</h2>
-          <p className="text-muted-foreground">Assign and manage employee tasks</p>
+          <p className="text-muted-foreground">
+            {isEmployee ? "Your assigned tasks" : "Assign and manage employee tasks"}
+          </p>
         </div>
-        <Button onClick={openCreate}><Plus className="mr-2 h-4 w-4" /> New Task</Button>
+        {!isEmployee && (
+          <Button onClick={openCreate}><Plus className="mr-2 h-4 w-4" /> New Task</Button>
+        )}
       </div>
 
       {/* Task Create/Edit Dialog - fully controlled, no DialogTrigger */}
@@ -177,21 +184,30 @@ export default function Tasks() {
               </div>
               <div className="space-y-2">
                 <Label>Assigned To (Employee)</Label>
-                <EmployeeSelect
-                  value={assignedToEmployeeId}
-                  onValueChange={handleAssignedEmployeeChange}
-                  employees={employees}
-                  placeholder="Search by Employee ID, Name, Email..."
-                  includeInactive
-                />
-                <p className="text-[11px] text-muted-foreground mt-1">
-                  Employee must have a linked user account to receive tasks.
-                </p>
+                {isEmployee ? (
+                  <div className="flex items-center gap-2 p-2 border rounded-md bg-muted/50">
+                    <UserCircle className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-medium">{user?.full_name || user?.username}</span>
+                  </div>
+                ) : (
+                  <>
+                    <EmployeeSelect
+                      value={assignedToEmployeeId}
+                      onValueChange={handleAssignedEmployeeChange}
+                      employees={employees}
+                      placeholder="Search by Employee ID, Name, Email..."
+                      includeInactive
+                    />
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      Employee must have a linked user account to receive tasks.
+                    </p>
+                  </>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Priority</Label>
-                  <Select value={form.priority || "medium"} onValueChange={(v) => setForm({ ...form, priority: v })}>
+                  <Select value={form.priority || "medium"} onValueChange={(v) => setForm({ ...form, priority: v })} disabled={isEmployee}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {PRIORITIES.map((p) => <SelectItem key={p} value={p} className="capitalize">{p}</SelectItem>)}
@@ -257,18 +273,20 @@ export default function Tasks() {
                   <TableCell className="text-right">
                     <div className="inline-flex gap-1 justify-end">
                       <Button size="sm" variant="ghost" onClick={() => openEdit(r)}><Pencil className="h-4 w-4" /></Button>
-                      <AlertDialog open={deleteId === r.id} onOpenChange={(o) => !o && setDeleteId(null)}>
-                        <AlertDialogTrigger asChild>
-                          <Button size="sm" variant="ghost" onClick={() => setDeleteId(r.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader><AlertDialogTitle>Delete task?</AlertDialogTitle></AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => doDelete(r.id)} className="bg-destructive hover:bg-destructive/90">Delete</AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
+                      {!isEmployee && (
+                        <AlertDialog open={deleteId === r.id} onOpenChange={(o) => !o && setDeleteId(null)}>
+                          <AlertDialogTrigger asChild>
+                            <Button size="sm" variant="ghost" onClick={() => setDeleteId(r.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader><AlertDialogTitle>Delete task?</AlertDialogTitle></AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction onClick={() => doDelete(r.id)} className="bg-destructive hover:bg-destructive/90">Delete</AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>

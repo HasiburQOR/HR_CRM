@@ -95,6 +95,8 @@ def get_task(task_id: str, db: Session = Depends(get_db), current_user: Any = De
 
 @router.post("")
 def create_task(data: TaskCreate, db: Session = Depends(get_db), current_user: Any = Depends(get_current_user)):
+    if _is_employee_role(db, current_user):
+        raise HTTPException(status_code=403, detail="Employees cannot create tasks")
     service = TaskService(db)
     payload = data.model_dump()
     if not payload.get("assigned_by"):

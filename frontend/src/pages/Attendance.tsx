@@ -8,6 +8,9 @@ import {
   Clock,
   UtensilsCrossed,
   Edit3,
+  Pencil,
+  Eye,
+  Trash2,
   UserCircle,
 } from "lucide-react"
 import { attendanceService } from "@/services/attendance.service"
@@ -31,6 +34,16 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import {
   Select,
   SelectContent,
@@ -109,6 +122,11 @@ export default function Attendance() {
   })
   const [busy, setBusy] = useState(false)
 
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [viewOpen, setViewOpen] = useState(false)
+  const [viewRecord, setViewRecord] = useState<Attendance | null>(null)
+  const [deleteId, setDeleteId] = useState<string | null>(null)
+
   useEffect(() => {
     load()
   }, [])
@@ -133,6 +151,7 @@ export default function Attendance() {
   }
 
   function openAction(mode: ActionMode) {
+    setEditingId(null)
     setForm((f) => ({
       ...f,
       date: todayISO(),
@@ -144,6 +163,37 @@ export default function Attendance() {
       notes: "",
     }))
     setActionOpen(mode)
+  }
+
+  function openEdit(r: Attendance) {
+    setEditingId(r.id)
+    setForm({
+      employee_id: r.employee_id || "",
+      date: r.date || todayISO(),
+      check_in: r.check_in || "",
+      check_out: r.check_out || "",
+      lunch_included: Boolean(r.lunch_taken || r.lunch_included || (r as any).auto_lunch_counted),
+      status: r.status || "present",
+      notes: r.notes || "",
+    })
+    setActionOpen("record")
+  }
+
+  function openView(r: Attendance) {
+    setViewRecord(r)
+    setViewOpen(true)
+  }
+
+  async function doDelete(id: string) {
+    try {
+      await attendanceService.delete(id)
+      toast({ title: "Record deleted", variant: "success" })
+      load()
+    } catch (e: any) {
+      toast({ title: "Error", description: e?.message, variant: "destructive" })
+    } finally {
+      setDeleteId(null)
+    }
   }
 
   async function submitIn() {
@@ -200,17 +250,31 @@ export default function Attendance() {
     }
     try {
       setBusy(true)
-      await attendanceService.create({
-        employee_id: form.employee_id,
-        date: form.date,
-        check_in: form.check_in || undefined,
-        check_out: form.check_out || undefined,
-        status: form.status,
-        lunch_included: form.lunch_included,
-        notes: form.notes || undefined,
-      })
-      toast({ title: "Recorded", variant: "success" })
+      if (editingId) {
+        await attendanceService.update(editingId, {
+          employee_id: form.employee_id,
+          date: form.date,
+          check_in: form.check_in || undefined,
+          check_out: form.check_out || undefined,
+          status: form.status,
+          lunch_included: form.lunch_included,
+          notes: form.notes || undefined,
+        })
+        toast({ title: "Updated", variant: "success" })
+      } else {
+        await attendanceService.create({
+          employee_id: form.employee_id,
+          date: form.date,
+          check_in: form.check_in || undefined,
+          check_out: form.check_out || undefined,
+          status: form.status,
+          lunch_included: form.lunch_included,
+          notes: form.notes || undefined,
+        })
+        toast({ title: "Recorded", variant: "success" })
+      }
       setActionOpen(null)
+      setEditingId(null)
       load()
     } catch (e: any) {
       toast({ title: "Record failed", description: e?.message, variant: "destructive" })
@@ -403,16 +467,46 @@ export default function Attendance() {
                       {r.notes || "—"}
                     </TableCell>
                     <TableCell className="text-right">
-                      {r.status === "pending" && (
-                        <div className="inline-flex gap-1 justify-end">
-                          <Button size="sm" variant="ghost" onClick={() => approve(r.id)}>
-                            <Check className="h-4 w-4 text-emerald-600" />
-                          </Button>
-                          <Button size="sm" variant="ghost" onClick={() => reject(r.id)}>
-                            <X className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </div>
-                      )}
+                      <div className="inline-flex gap-1 justify-end">
+                        {r.status === "pending" && !isEmployee && (
+                          <>
+                            <Button size="sm" variant="ghost" onClick={() => approve(r.id)} title="Approve">
+                              <Check className="h-4 w-4 text-emerald-600" />
+                            </Button>
+                            <Button size="sm" variant="ghost" onClick={() => reject(r.id)} title="Reject">
+                              <X className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </>
+                        )}
+                        {!isEmployee && (
+                          <>
+                            <Button size="sm" variant="ghost" onClick={() => openView(r)} title="View Details">
+                              <Eye className="h-4 w-4 text-blue-600" />
+                            </Button>
+                            <Button size="sm" variant="ghost" onClick={() => openEdit(r)} title="Edit">
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <AlertDialog open={deleteId === r.id} onOpenChange={(o) => !o && setDeleteId(null)}>
+                              <AlertDialogTrigger asChild>
+                                <Button size="sm" variant="ghost" onClick={() => setDeleteId(r.id)} title="Delete">
+                                  <Trash2 className="h-4 w-4 text-destructive" />
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Delete attendance record?</AlertDialogTitle>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                  <AlertDialogAction onClick={() => doDelete(r.id)} className="bg-destructive hover:bg-destructive/90">
+                                    Delete
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          </>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))
@@ -560,15 +654,18 @@ export default function Attendance() {
         </DialogContent>
       </Dialog>
 
-      {/* Full Record Dialog */}
-      <Dialog open={actionOpen === "record"} onOpenChange={(o) => !o && setActionOpen(null)}>
+      {/* Full Record Dialog (also used for Edit) */}
+      <Dialog open={actionOpen === "record"} onOpenChange={(o) => { if (!o) { setActionOpen(null); setEditingId(null) } }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Edit3 className="h-4 w-4" /> Manual Attendance Record
+              {editingId ? <Pencil className="h-4 w-4" /> : <Edit3 className="h-4 w-4" />}
+              {editingId ? "Edit Attendance Record" : "Manual Attendance Record"}
             </DialogTitle>
             <DialogDescription>
-              Enter both check-in and check-out for a date (useful for back-filling records).
+              {editingId
+                ? "Update the check-in/check-out times, status, or notes for this record."
+                : "Enter both check-in and check-out for a date (useful for back-filling records)."}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
@@ -634,10 +731,87 @@ export default function Attendance() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setActionOpen(null)} disabled={busy}>Cancel</Button>
+            <Button variant="ghost" onClick={() => { setActionOpen(null); setEditingId(null) }} disabled={busy}>Cancel</Button>
             <Button onClick={submitRecord} disabled={busy || !form.employee_id}>
-              {busy ? "Saving…" : "Save Record"}
+              {busy ? "Saving…" : editingId ? "Save Changes" : "Save Record"}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* View Details Dialog */}
+      <Dialog open={viewOpen} onOpenChange={setViewOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Attendance Details</DialogTitle>
+          </DialogHeader>
+          {viewRecord && (
+            <div className="space-y-4 py-2">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="border rounded-lg p-3 bg-muted/50">
+                  <p className="text-xs text-muted-foreground">Employee</p>
+                  <p className="font-semibold">{(viewRecord as any).employee_name || viewRecord.employee_id?.slice(0, 8)}</p>
+                  {(viewRecord as any).employee_code && (
+                    <p className="font-mono text-[11px] text-muted-foreground">{(viewRecord as any).employee_code}</p>
+                  )}
+                </div>
+                <div className="border rounded-lg p-3 bg-muted/50">
+                  <p className="text-xs text-muted-foreground">Date</p>
+                  <p className="font-semibold">{formatDate(viewRecord.date!)}</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="border rounded-lg p-3 bg-muted/50">
+                  <p className="text-xs text-muted-foreground">Check In</p>
+                  <p className="font-mono font-semibold">{viewRecord.check_in || "—"}</p>
+                </div>
+                <div className="border rounded-lg p-3 bg-muted/50">
+                  <p className="text-xs text-muted-foreground">Check Out</p>
+                  <p className="font-mono font-semibold">{viewRecord.check_out || "—"}</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="border rounded-lg p-3 bg-muted/50">
+                  <p className="text-xs text-muted-foreground">Hours Worked</p>
+                  <p className="font-mono font-semibold">{formatHours(viewRecord.hours_worked)}</p>
+                </div>
+                <div className="border rounded-lg p-3 bg-muted/50">
+                  <p className="text-xs text-muted-foreground">Status</p>
+                  <Badge variant={statusVariant(viewRecord.status || "pending")} className="capitalize mt-1">
+                    {viewRecord.status || "pending"}
+                  </Badge>
+                </div>
+              </div>
+              <div className="border rounded-lg p-3 bg-muted/50">
+                <p className="text-xs text-muted-foreground">Lunch</p>
+                <p className="font-semibold">
+                  {viewRecord.lunch_taken || viewRecord.lunch_included || (viewRecord as any).auto_lunch_counted ? "Provided / Counted" : "—"}
+                </p>
+              </div>
+              {viewRecord.notes && (
+                <div className="border rounded-lg p-3 bg-muted/50">
+                  <p className="text-xs text-muted-foreground">Notes</p>
+                  <p className="text-sm">{viewRecord.notes}</p>
+                </div>
+              )}
+              <div className="text-xs text-muted-foreground space-y-1">
+                <p>Record ID: <span className="font-mono">{viewRecord.id}</span></p>
+                {(viewRecord as any).created_at && (
+                  <p>Created: <span className="font-mono">{new Date((viewRecord as any).created_at).toLocaleString()}</span></p>
+                )}
+                {(viewRecord as any).updated_at && (
+                  <p>Updated: <span className="font-mono">{new Date((viewRecord as any).updated_at).toLocaleString()}</span></p>
+                )}
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setViewOpen(false)}>Close</Button>
+            {viewRecord && !isEmployee && (
+              <Button onClick={() => { setViewOpen(false); openEdit(viewRecord) }}>
+                <Pencil className="mr-2 h-4 w-4" /> Edit
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
