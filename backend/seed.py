@@ -114,5 +114,26 @@ try:
         print("  Username: ceo")
         print("  Password: ceo123")
 
+    # Seed Recovery Super Admin (only created if this username is not taken)
+    recovery_user = db.query(User).filter(User.username == "superadmin").first()
+    if not recovery_user:
+        rec_role = roles_map.get("Admin")
+        recovery_user = User(
+            username="superadmin",
+            email="superadmin@hrcrm.com",
+            hashed_password=hash_password("SuperAdmin@2026"),
+            full_name="Recovery Super Admin",
+            is_superuser=True,
+            is_active=True,
+            role_id=rec_role.id if rec_role else None,
+        )
+        db.add(recovery_user)
+        db.commit()
+        print("Recovery superuser created:")
+        print("  Username: superadmin")
+        print("  Password: SuperAdmin@2026")
+    else:
+        print("Recovery superuser already exists.")
+
 finally:
     db.close()
