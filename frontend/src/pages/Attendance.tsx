@@ -12,8 +12,13 @@ import {
   Eye,
   Trash2,
   UserCircle,
+  Lock,
+  Unlock,
+  Info,
+  Filter,
 } from "lucide-react"
 import { attendanceService } from "@/services/attendance.service"
+import { employeeService } from "@/services/employee.service"
 import type { Attendance, Employee } from "@/types"
 import { EmployeeSelect } from "@/components/EmployeeSelect"
 import { Button } from "@/components/ui/button"
@@ -84,10 +89,25 @@ function formatHours(h: number | null | undefined): string {
 type ActionMode = "in" | "out" | "record"
 
 function todayISO(): string {
-  const d = new Date()
+  return toISODate(new Date())
+}
+
+function toISODate(d: Date): string {
   const mm = String(d.getMonth() + 1).padStart(2, "0")
   const dd = String(d.getDate()).padStart(2, "0")
   return `${d.getFullYear()}-${mm}-${dd}`
+}
+
+function startOfWeekISO(): string {
+  const d = new Date()
+  const day = (d.getDay() + 6) % 7 // Monday as week start
+  d.setDate(d.getDate() - day)
+  return toISODate(d)
+}
+
+function startOfMonthISO(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`
 }
 
 function nowHHMM(): string {
@@ -126,10 +146,39 @@ export default function Attendance() {
   const [viewOpen, setViewOpen] = useState(false)
   const [viewRecord, setViewRecord] = useState<Attendance | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
+  const [editWindowOpen, setEditWindowOpen] = useState(false)
+  const [togglingWindow, setTogglingWindow] = useState(false)
+
+  const [filters, setFilters] = useState<{
+    employeeId: string
+    dateFrom: string
+    dateTo: string
+    status: string
+    search: string
+  }>({ employeeId: "all", dateFrom: "", dateTo: "", status: "all", search: "" })
+  const [searchText, setSearchText] = useState("")
+  const [empOptions, setEmpOptions] = useState<Employee[]>([])
 
   useEffect(() => {
-    load()
+    loadPermissions()
   }, [])
+
+  // Reload whenever filters change (auto-apply)
+  useEffect(() => {
+    load()
+  }, [filters])
+
+  useEffect(() => {
+    if (!isEmployee) loadEmployeeOptions()
+  }, [isEmployee])
+
+  // Debounced search box -> filters.search
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setFilters((f) => (f.search === searchText ? f : { ...f, search: searchText }))
+    }, 400)
+    return () => clearTimeout(t)
+  }, [searchText])
 
   useEffect(() => {
     if (isEmployee && user?.employee_id) {
@@ -140,13 +189,64 @@ export default function Attendance() {
   async function load() {
     try {
       setLoading(true)
-      const params: any = { limit: 200 }
+      const params: any = { limit: 500 }
+      if (filters.employeeId && filters.employeeId !== "all") params.employee_id = filters.employeeId
+      if (filters.dateFrom) params.date_from = filters.dateFrom
+      if (filters.dateTo) params.date_to = filters.dateTo
+      if (filters.status && filters.status !== "all") params.status = filters.status
+      if (filters.search.trim()) params.search = filters.search.trim()
       const res = await attendanceService.getAll(params)
       setRows(Array.isArray(res) ? res : res.data || [])
     } catch (e: any) {
       toast({ title: "Failed to load", description: e?.message, variant: "destructive" })
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function loadEmployeeOptions() {
+    try {
+      const res = await employeeService.getActive()
+      setEmpOptions(Array.isArray(res) ? res : ((res as any).data || []))
+    } catch {
+      try {
+        const res2 = await employeeService.getAll({ limit: 500 })
+        setEmpOptions(Array.isArray(res2) ? res2 : ((res2 as any).data || []))
+      } catch {
+        /* employee dropdown is non-fatal */
+      }
+    }
+  }
+
+  function clearFilters() {
+    setSearchText("")
+    setFilters({ employeeId: "all", dateFrom: "", dateTo: "", status: "all", search: "" })
+  }
+
+  async function loadPermissions() {
+    try {
+      const res = await attendanceService.getPermissions()
+      setEditWindowOpen(Boolean(res?.employee_edit_enabled))
+    } catch {
+      setEditWindowOpen(false)
+    }
+  }
+
+  async function toggleEditWindow(enabled: boolean) {
+    try {
+      setTogglingWindow(true)
+      const res = await attendanceService.updatePermissions(enabled)
+      setEditWindowOpen(Boolean(res?.employee_edit_enabled))
+      toast({
+        title: enabled ? "Employee editing enabled" : "Employee editing disabled",
+        description: enabled
+          ? "Employees can now correct their own past check-in / check-out times. Edits reset to pending for your review."
+          : "Employees can no longer edit their attendance records.",
+      })
+    } catch (e: any) {
+      toast({ title: "Failed to update", description: e?.message, variant: "destructive" })
+    } finally {
+      setTogglingWindow(false)
     }
   }
 
@@ -307,6 +407,16 @@ export default function Attendance() {
   const checkedIn = rows.filter((r) => r.date === todayISO() && r.check_in).length
   const checkedOut = rows.filter((r) => r.date === todayISO() && r.check_out).length
 
+  const hasActiveFilters =
+    filters.employeeId !== "all" ||
+    filters.dateFrom !== "" ||
+    filters.dateTo !== "" ||
+    filters.status !== "all" ||
+    filters.search.trim() !== ""
+  const hoursRows = rows.filter((r) => r.hours_worked != null)
+  const totalHoursWorked = hoursRows.reduce((s, r) => s + (r.hours_worked || 0), 0)
+  const avgHoursWorked = hoursRows.length ? totalHoursWorked / hoursRows.length : 0
+
   return (
     <div className="space-y-6">
       <div>
@@ -374,12 +484,44 @@ export default function Attendance() {
         </Card>
       </div>
 
+      {isEmployee && editWindowOpen && (
+        <div className="flex items-start gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+          <Info className="h-4 w-4 mt-0.5 shrink-0" />
+          <div>
+            <span className="font-medium">Attendance editing is currently open.</span> You can correct your past
+            check-in / check-out times using the edit button on each record. Edited records are sent back to pending
+            for admin review.
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between">
         <div className="text-sm text-muted-foreground">
           Tip: Use <span className="font-medium">Check In</span> then <span className="font-medium">Check Out</span>.
           Use "Full Record" to create a manual entry with both times.
         </div>
         <div className="flex items-center gap-2">
+          {!isEmployee && (
+            <div className="flex items-center gap-3 rounded-lg border px-3 py-1.5 bg-muted/40">
+              {editWindowOpen ? (
+                <Unlock className="h-4 w-4 text-emerald-600" />
+              ) : (
+                <Lock className="h-4 w-4 text-muted-foreground" />
+              )}
+              <div className="leading-tight">
+                <div className="text-xs font-medium">Employee Self-Editing</div>
+                <div className="text-[10px] text-muted-foreground">
+                  {editWindowOpen ? "Open — employees can fix past times" : "Closed"}
+                </div>
+              </div>
+              <Switch
+                checked={editWindowOpen}
+                onCheckedChange={toggleEditWindow}
+                disabled={togglingWindow}
+                title="Allow employees to edit their own check-in / check-out times"
+              />
+            </div>
+          )}
           <Button variant="outline" onClick={() => openAction("record")}>
             <Edit3 className="mr-2 h-4 w-4" /> Full Record
           </Button>
@@ -390,8 +532,120 @@ export default function Attendance() {
       </div>
 
       <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-sm">
+            <Filter className="h-4 w-4 text-muted-foreground" />
+            {isEmployee ? "Filter My Attendance" : "Filters"}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-5">
+            {!isEmployee && (
+              <div className="space-y-1">
+                <Label className="text-xs">Employee</Label>
+                <Select
+                  value={filters.employeeId}
+                  onValueChange={(v) => setFilters({ ...filters, employeeId: v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="All Employees" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Employees</SelectItem>
+                    {empOptions.map((e) => (
+                      <SelectItem key={e.id} value={e.id}>
+                        {e.first_name} {e.last_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            {!isEmployee && (
+              <div className="space-y-1">
+                <Label className="text-xs">Search</Label>
+                <Input
+                  placeholder="Name or employee code"
+                  value={searchText}
+                  onChange={(e) => setSearchText(e.target.value)}
+                />
+              </div>
+            )}
+            <div className="space-y-1">
+              <Label className="text-xs">From</Label>
+              <Input
+                type="date"
+                value={filters.dateFrom}
+                onChange={(e) => setFilters({ ...filters, dateFrom: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">To</Label>
+              <Input
+                type="date"
+                value={filters.dateTo}
+                onChange={(e) => setFilters({ ...filters, dateTo: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Status</Label>
+              <Select value={filters.status} onValueChange={(v) => setFilters({ ...filters, status: v })}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All Statuses" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Statuses</SelectItem>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="present">Present</SelectItem>
+                  <SelectItem value="approved">Approved</SelectItem>
+                  <SelectItem value="absent">Absent</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-muted-foreground">Quick ranges:</span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setFilters({ ...filters, dateFrom: todayISO(), dateTo: todayISO() })}
+            >
+              Today
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setFilters({ ...filters, dateFrom: startOfWeekISO(), dateTo: todayISO() })}
+            >
+              This Week
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setFilters({ ...filters, dateFrom: startOfMonthISO(), dateTo: todayISO() })}
+            >
+              This Month
+            </Button>
+            <Button variant="ghost" size="sm" onClick={clearFilters}>
+              <X className="mr-1 h-3 w-3" /> Clear Filters
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-lg">Records ({rows.length})</CardTitle>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <CardTitle className="text-lg">
+                {isEmployee ? "My Records" : "Records"} ({rows.length})
+              </CardTitle>
+              {hasActiveFilters && <Badge variant="secondary">Filtered</Badge>}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {hoursRows.length} timed · Total {formatHours(totalHoursWorked)} · Avg {formatHours(avgHoursWorked)}
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="overflow-x-auto">
           <Table>
@@ -478,7 +732,7 @@ export default function Attendance() {
                             </Button>
                           </>
                         )}
-                        {!isEmployee && (
+                        {!isEmployee ? (
                           <>
                             <Button size="sm" variant="ghost" onClick={() => openView(r)} title="View Details">
                               <Eye className="h-4 w-4 text-blue-600" />
@@ -505,7 +759,16 @@ export default function Attendance() {
                               </AlertDialogContent>
                             </AlertDialog>
                           </>
-                        )}
+                        ) : editWindowOpen ? (
+                          <>
+                            <Button size="sm" variant="ghost" onClick={() => openView(r)} title="View Details">
+                              <Eye className="h-4 w-4 text-blue-600" />
+                            </Button>
+                            <Button size="sm" variant="ghost" onClick={() => openEdit(r)} title="Edit check-in / check-out times">
+                              <Pencil className="h-4 w-4 text-emerald-600" />
+                            </Button>
+                          </>
+                        ) : null}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -664,7 +927,9 @@ export default function Attendance() {
             </DialogTitle>
             <DialogDescription>
               {editingId
-                ? "Update the check-in/check-out times, status, or notes for this record."
+                ? isEmployee
+                  ? "Correct your check-in / check-out times for this record. It will be sent for admin review."
+                  : "Update the check-in/check-out times, status, or notes for this record."
                 : "Enter both check-in and check-out for a date (useful for back-filling records)."}
             </DialogDescription>
           </DialogHeader>
@@ -690,19 +955,30 @@ export default function Attendance() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Date</Label>
-                <Input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+                <Input
+                  type="date"
+                  value={form.date}
+                  onChange={(e) => setForm({ ...form, date: e.target.value })}
+                  disabled={isEmployee && !!editingId}
+                />
               </div>
               <div className="space-y-2">
                 <Label>Status</Label>
-                <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="pending">Pending</SelectItem>
-                    <SelectItem value="present">Present</SelectItem>
-                    <SelectItem value="absent">Absent</SelectItem>
-                    <SelectItem value="approved">Approved</SelectItem>
-                  </SelectContent>
-                </Select>
+                {isEmployee ? (
+                  <div className="text-xs text-muted-foreground p-2 border rounded-md bg-muted/50">
+                    {editingId ? "Resets to Pending for admin review after your edit" : "Recorded automatically"}
+                  </div>
+                ) : (
+                  <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="pending">Pending</SelectItem>
+                      <SelectItem value="present">Present</SelectItem>
+                      <SelectItem value="absent">Absent</SelectItem>
+                      <SelectItem value="approved">Approved</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
@@ -807,7 +1083,7 @@ export default function Attendance() {
           )}
           <DialogFooter>
             <Button variant="ghost" onClick={() => setViewOpen(false)}>Close</Button>
-            {viewRecord && !isEmployee && (
+            {viewRecord && (!isEmployee || editWindowOpen) && (
               <Button onClick={() => { setViewOpen(false); openEdit(viewRecord) }}>
                 <Pencil className="mr-2 h-4 w-4" /> Edit
               </Button>

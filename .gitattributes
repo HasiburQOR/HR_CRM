@@ -1,0 +1,14 @@
+# Always check out shell scripts with LF line endings (required for Linux/Docker exec)
+*.sh text eol=lf
+entrypoint.sh text eol=lf
+
+# Normal text files
+*.py text
+*.ts text
+*.tsx text
+*.js text
+*.json text
+*.yml text
+*.yaml text
+*.md text
+Dockerfile text

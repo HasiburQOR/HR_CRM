@@ -28,6 +28,7 @@ export const attendanceService = {
     date_from?: string
     date_to?: string
     status?: string
+    search?: string
   } = {}): Promise<AttendanceListResponse> {
     const res = await api.get<AttendanceListResponse>("/attendances", { params })
     return res.data as unknown as AttendanceListResponse
@@ -59,6 +60,18 @@ export const attendanceService = {
 
   async reject(id: string): Promise<Attendance> {
     const res = await api.post<ApiResponse<Attendance>>(`/attendances/${id}/reject`)
+    return res.data.data
+  },
+
+  async getPermissions(): Promise<{ employee_edit_enabled: boolean }> {
+    const res = await api.get<ApiResponse<{ employee_edit_enabled: boolean }>>("/attendances/permissions")
+    return res.data.data
+  },
+
+  async updatePermissions(employeeEditEnabled: boolean): Promise<{ employee_edit_enabled: boolean }> {
+    const res = await api.put<ApiResponse<{ employee_edit_enabled: boolean }>>("/attendances/permissions", {
+      employee_edit_enabled: employeeEditEnabled,
+    })
     return res.data.data
   },
 

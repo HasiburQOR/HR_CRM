@@ -23,5 +23,7 @@ EXPOSE 8000
 # For SQLite: make sure DB dir is writable
 
 COPY entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
+# Normalize line endings (Windows CRLF would break the shebang) and make executable
+RUN sed -i 's/\r$//' /app/entrypoint.sh \
+ && chmod +x /app/entrypoint.sh
 CMD ["/app/entrypoint.sh"]

@@ -26,6 +26,22 @@ MONTH_MAP = {
 }
 
 
+def _att_seconds(a) -> float | None:
+    """Raw seconds between clock-in and clock-out (no lunch deduction)."""
+    if not a.clock_in or not a.clock_out:
+        return None
+    secs = (datetime.combine(date.min, a.clock_out) - datetime.combine(date.min, a.clock_in)).total_seconds()
+    return secs if secs > 0 else None
+
+
+def _fmt_hours(seconds: float | None) -> str:
+    """Format seconds worked as H:MM (e.g. 8:30)."""
+    if seconds is None or seconds <= 0:
+        return "-"
+    total_minutes = int(round(seconds / 60))
+    return f"{total_minutes // 60}:{total_minutes % 60:02d}"
+
+
 def _to_excel_multi(sheets: list[tuple[str, list[dict]]]) -> io.BytesIO:
     wb = openpyxl.Workbook()
     first = True
@@ -167,6 +183,8 @@ def report_attendance(
             "Date": str(a.date),
             "Clock In": str(a.clock_in) if a.clock_in else "-",
             "Clock Out": str(a.clock_out) if a.clock_out else "-",
+            "Hours Worked": _fmt_hours(_att_seconds(a)),
+            "Lunch": "Yes" if a.auto_lunch_counted else "No",
             "Status": a.status,
             "Notes": a.notes or "",
         }
@@ -522,6 +540,8 @@ def report_employee_individual(
             "Date": str(a.date),
             "Clock In": str(a.clock_in) if a.clock_in else "-",
             "Clock Out": str(a.clock_out) if a.clock_out else "-",
+            "Hours Worked": _fmt_hours(_att_seconds(a)),
+            "Lunch": "Yes" if a.auto_lunch_counted else "No",
             "Status": a.status,
             "Notes": a.notes or "",
         })

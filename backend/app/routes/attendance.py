@@ -1,6 +1,7 @@
 from typing import Any
 from datetime import date as dt_date, time as dt_time, datetime
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
@@ -9,9 +10,11 @@ from app.models.attendance import Attendance
 from app.models.employee import Employee
 from app.models.user import User
 from app.schemas.attendance import AttendanceCreate, AttendanceUpdate
-from app.utils.dependencies import get_current_user, get_user_role_name
+from app.utils.dependencies import get_current_user, get_user_role_name, require_admin
 from app.utils.response import success_response, paginated_response
 from app.services.attendance import AttendanceService
+from app.utils.timezone import get_bd_now
+from app.models.setting import Setting
 
 router = APIRouter(prefix="/attendances", tags=["attendances"])
 
@@ -30,17 +33,30 @@ def _parse_hhmm(s: str | None) -> dt_time | None:
         return None
 
 
+def _iso_date_or_400(value: str, param: str) -> str:
+    """Validate an ISO (YYYY-MM-DD) date query param or raise 400."""
+    try:
+        dt_date.fromisoformat(value)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail=f"{param} must be a valid ISO date (YYYY-MM-DD)")
+    return value
+
+
+def _att_seconds(att: Attendance) -> float | None:
+    """Raw seconds between clock-in and clock-out (no lunch deduction)."""
+    if not att.clock_in or not att.clock_out:
+        return None
+    total_seconds = (
+        datetime.combine(dt_date.min, att.clock_out)
+        - datetime.combine(dt_date.min, att.clock_in)
+    ).total_seconds()
+    return total_seconds if total_seconds > 0 else None
+
+
 def _att_to_dict(att: Attendance, emp: Employee | None) -> dict:
-    # Calculate hours worked
-    hours_worked = None
-    if att.clock_in and att.clock_out:
-        total_seconds = (
-            datetime.combine(dt_date.min, att.clock_out)
-            - datetime.combine(dt_date.min, att.clock_in)
-        ).total_seconds()
-        if total_seconds > 0:
-            lunch_seconds = 3600 if att.auto_lunch_counted else 0
-            hours_worked = round((total_seconds - lunch_seconds) / 3600, 2)
+    # Raw hours worked = check-out minus check-in (lunch tracked separately)
+    seconds = _att_seconds(att)
+    hours_worked = round(seconds / 3600, 2) if seconds is not None else None
 
     return {
         "id": att.id,
@@ -109,7 +125,7 @@ def action_check_in(payload: _CheckIn, db: Session = Depends(get_db), current_us
     today = dt_date.today()
     if payload.date:
         today = dt_date.fromisoformat(payload.date[:10])
-    ci = _parse_hhmm(payload.check_in) or datetime.now().time().replace(microsecond=0)
+    ci = _parse_hhmm(payload.check_in) or get_bd_now().time().replace(microsecond=0)
 
     att = db.query(Attendance).filter(Attendance.employee_id == emp.id, Attendance.date == today).first()
 
@@ -153,7 +169,7 @@ def action_check_out(payload: _CheckOut, db: Session = Depends(get_db), current_
     today = dt_date.today()
     if payload.date:
         today = dt_date.fromisoformat(payload.date[:10])
-    co = _parse_hhmm(payload.check_out) or datetime.now().time().replace(microsecond=0)
+    co = _parse_hhmm(payload.check_out) or get_bd_now().time().replace(microsecond=0)
 
     att = db.query(Attendance).filter(Attendance.employee_id == emp.id, Attendance.date == today).order_by(Attendance.created_at.desc()).first()
 
@@ -174,6 +190,48 @@ def action_check_out(payload: _CheckOut, db: Session = Depends(get_db), current_
 
 
 # ---------------------------------------------------------------------------
+# Employee self-edit permission (admin-controlled editing window)
+# NOTE: /permissions routes MUST be defined BEFORE /{attendance_id} routes
+# ---------------------------------------------------------------------------
+
+EMPLOYEE_EDIT_SETTING_KEY = "attendance_allow_employee_edit"
+
+
+def _employee_edit_enabled(db: Session) -> bool:
+    """True only while an admin has opened the employee attendance editing window."""
+    setting = db.query(Setting).filter(Setting.key == EMPLOYEE_EDIT_SETTING_KEY).first()
+    if not setting or setting.value is None:
+        return False
+    return str(setting.value).strip().lower() in ("1", "true", "yes", "on")
+
+
+@router.get("/permissions")
+def get_attendance_permissions(db: Session = Depends(get_db), current_user: Any = Depends(get_current_user)):
+    return success_response(data={"employee_edit_enabled": _employee_edit_enabled(db)})
+
+
+class _PermissionsUpdate(BaseModel):
+    employee_edit_enabled: bool
+
+
+@router.put("/permissions")
+def update_attendance_permissions(payload: _PermissionsUpdate, db: Session = Depends(get_db), current_user: Any = Depends(require_admin)):
+    setting = db.query(Setting).filter(Setting.key == EMPLOYEE_EDIT_SETTING_KEY).first()
+    value = "true" if payload.employee_edit_enabled else "false"
+    if setting:
+        setting.value = value
+    else:
+        setting = Setting(
+            key=EMPLOYEE_EDIT_SETTING_KEY,
+            value=value,
+            description="When true, employees can edit their own attendance check-in/check-out times. Edited records reset to pending for admin review.",
+        )
+        db.add(setting)
+    db.commit()
+    return success_response(data={"employee_edit_enabled": _employee_edit_enabled(db)})
+
+
+# ---------------------------------------------------------------------------
 # CRUD routes (static paths first, then path-parameter routes)
 # ---------------------------------------------------------------------------
 
@@ -185,24 +243,40 @@ def list_attendances(
     date_from: str | None = None,
     date_to: str | None = None,
     status: str | None = None,
+    search: str | None = None,
     db: Session = Depends(get_db),
     current_user: Any = Depends(get_current_user),
 ):
     query = db.query(Attendance, Employee).outerjoin(Employee, Attendance.employee_id == Employee.id)
 
+    # Employees can only ever see their own records, regardless of filters passed
     if _is_employee_role(db, current_user):
         emp = _get_current_employee(db, current_user)
-        if emp:
-            query = query.filter(Attendance.employee_id == emp.id)
-
-    if employee_id and employee_id != "all":
+        if not emp:
+            return paginated_response(data=[], total=0, page=1, per_page=limit)
+        query = query.filter(Attendance.employee_id == emp.id)
+    elif employee_id and employee_id != "all":
         query = query.filter(Attendance.employee_id == employee_id)
+
+    if date_from:
+        date_from = _iso_date_or_400(date_from, "date_from")
+    if date_to:
+        date_to = _iso_date_or_400(date_to, "date_to")
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(status_code=400, detail="date_from must be on or before date_to")
     if date_from:
         query = query.filter(Attendance.date >= date_from)
     if date_to:
         query = query.filter(Attendance.date <= date_to)
     if status and status != "all":
         query = query.filter(Attendance.status == status)
+    if search and search.strip():
+        term = f"%{search.strip()}%"
+        query = query.filter(or_(
+            Employee.first_name.ilike(term),
+            Employee.last_name.ilike(term),
+            Employee.employee_id.ilike(term),
+        ))
 
     total = query.count()
     results = query.order_by(Attendance.date.desc()).offset(skip).limit(limit).all()
@@ -289,16 +363,36 @@ def get_attendance(attendance_id: str, db: Session = Depends(get_db), current_us
     return success_response(data=_att_to_dict(att, emp))
 
 
+# Fields employees are allowed to modify on their OWN records while the
+# admin-controlled editing window is open.
+_EMPLOYEE_EDITABLE_FIELDS = {
+    "check_in", "check_out", "clock_in", "clock_out",
+    "lunch_taken", "lunch_included", "auto_lunch_counted", "notes",
+}
+
+
 @router.put("/{attendance_id}")
 def update_attendance(attendance_id: str, data: AttendanceUpdate, db: Session = Depends(get_db), current_user: Any = Depends(get_current_user)):
-    if _is_employee_role(db, current_user):
+    is_employee = _is_employee_role(db, current_user)
+    if is_employee and not _employee_edit_enabled(db):
         raise HTTPException(status_code=403, detail="Employees cannot modify attendance records")
+
     update_data = data.model_dump(exclude_unset=True)
     if not update_data:
         raise HTTPException(status_code=400, detail="No data to update")
     att = db.query(Attendance).filter(Attendance.id == attendance_id).first()
     if not att:
         raise HTTPException(status_code=404, detail="Attendance record not found")
+
+    if is_employee:
+        my_emp = _get_current_employee(db, current_user)
+        if not my_emp or att.employee_id != my_emp.id:
+            raise HTTPException(status_code=403, detail="You can only edit your own attendance records")
+        # Employees may only adjust times / lunch / notes (not date, employee or status)
+        update_data = {k: v for k, v in update_data.items() if k in _EMPLOYEE_EDITABLE_FIELDS}
+        if not update_data:
+            raise HTTPException(status_code=403, detail="Employees can only edit check-in / check-out times, lunch and notes")
+
     if "clock_in" in update_data and update_data["clock_in"]:
         att.clock_in = update_data["clock_in"]
     elif "check_in" in update_data:
@@ -311,15 +405,28 @@ def update_attendance(attendance_id: str, data: AttendanceUpdate, db: Session = 
         parsed = _parse_hhmm(update_data.get("check_out"))
         if parsed:
             att.clock_out = parsed
+    lunch_value = None
     for lunch_key in ("lunch_taken", "lunch_included", "auto_lunch_counted"):
         if lunch_key in update_data and update_data[lunch_key] is not None:
-            if bool(update_data[lunch_key]):
-                att.auto_lunch_counted = True
+            lunch_value = bool(update_data[lunch_key])
             break
-    if "status" in update_data and update_data["status"]:
+    if lunch_value is not None:
+        att.auto_lunch_counted = lunch_value
+    if not is_employee and "status" in update_data and update_data["status"]:
         att.status = update_data["status"]
     if "notes" in update_data and update_data["notes"] is not None:
         att.notes = update_data["notes"]
+
+    # Sanity check: check-out must be after check-in
+    if att.clock_in and att.clock_out and _att_seconds(att) is None:
+        raise HTTPException(status_code=400, detail="Check-out time must be after check-in time")
+
+    if is_employee:
+        # Employee edits go back to pending for admin review
+        att.status = "pending"
+        att.approved_by = None
+        att.rejected_by = None
+
     db.commit()
     db.refresh(att)
     emp = db.query(Employee).filter(Employee.id == att.employee_id).first()

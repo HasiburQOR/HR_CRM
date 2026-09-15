@@ -32,6 +32,24 @@ try:
             if "duration_days" not in qcols:
                 conn.execute(text("ALTER TABLE requisitions ADD COLUMN duration_days INTEGER"))
                 print("Added column: requisitions.duration_days")
+    if "attendances" in inspector.get_table_names():
+        acols = [c["name"] for c in inspector.get_columns("attendances")]
+        with engine.begin() as conn:
+            if "auto_lunch_counted" not in acols:
+                conn.execute(text("ALTER TABLE attendances ADD COLUMN auto_lunch_counted BOOLEAN DEFAULT FALSE"))
+                print("Added column: attendances.auto_lunch_counted")
+            if "lunch_break_start" not in acols:
+                conn.execute(text("ALTER TABLE attendances ADD COLUMN lunch_break_start TIME"))
+                print("Added column: attendances.lunch_break_start")
+            if "lunch_break_end" not in acols:
+                conn.execute(text("ALTER TABLE attendances ADD COLUMN lunch_break_end TIME"))
+                print("Added column: attendances.lunch_break_end")
+            if "approved_by" not in acols:
+                conn.execute(text("ALTER TABLE attendances ADD COLUMN approved_by VARCHAR(36)"))
+                print("Added column: attendances.approved_by")
+            if "rejected_by" not in acols:
+                conn.execute(text("ALTER TABLE attendances ADD COLUMN rejected_by VARCHAR(36)"))
+                print("Added column: attendances.rejected_by")
 finally:
     db.close()
 
