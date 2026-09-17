@@ -11,6 +11,7 @@ from app.models.activity_log import ActivityLog
 from app.models.setting import Setting
 from app.models.expense import Expense
 from app.models.requisition import Requisition, RequisitionExpense
+from app.models.inventory import InventoryItem, InventoryAssignment
 
 __all__ = [
     "User",
@@ -27,4 +28,6 @@ __all__ = [
     "Expense",
     "Requisition",
     "RequisitionExpense",
+    "InventoryItem",
+    "InventoryAssignment",
 ]

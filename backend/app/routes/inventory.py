@@ -9,16 +9,53 @@ import openpyxl
 
 from app.database import get_db
 from app.services.inventory import InventoryService
-from app.schemas.inventory import InventoryCreate, InventoryUpdate, InventoryAssign
+from app.schemas.inventory import InventoryCreate, InventoryUpdate, InventoryAssign, InventoryReturn
 from app.utils.dependencies import require_admin
 from app.utils.response import success_response, paginated_response
-from app.models.inventory import InventoryItem
+from app.models.inventory import InventoryItem, InventoryAssignment
 from app.models.employee import Employee
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
 
 
-def _to_dict(item: InventoryItem, emp: Employee | None) -> dict:
+def _assignment_dict(a: InventoryAssignment, emp: Employee | None) -> dict:
+    return {
+        "id": a.id,
+        "item_id": a.item_id,
+        "employee_id": a.employee_id,
+        "employee_name": f"{emp.first_name} {emp.last_name}" if emp else None,
+        "employee_empid": emp.employee_id if emp else None,
+        "quantity": int(a.quantity or 1),
+        "condition": getattr(a, "condition", None),
+        "assigned_at": str(a.assigned_at) if getattr(a, "assigned_at", None) else None,
+        "returned_at": str(a.returned_at) if getattr(a, "returned_at", None) else None,
+        "return_condition": getattr(a, "return_condition", None),
+        "status": a.status,
+        "notes": getattr(a, "notes", None),
+        "created_at": a.created_at.isoformat() if a.created_at else None,
+    }
+
+
+def _load_assignments_map(db: Session, item_ids: list[str], active_only: bool = True) -> dict[str, list[dict]]:
+    """Active assignments per item id, with employee info joined in."""
+    if not item_ids:
+        return {}
+    query = db.query(InventoryAssignment).filter(
+        InventoryAssignment.item_id.in_(item_ids),
+        InventoryAssignment.deleted_at.is_(None),
+    )
+    if active_only:
+        query = query.filter(InventoryAssignment.status == "active")
+    rows = query.order_by(InventoryAssignment.created_at.desc()).all()
+    emp_ids = list({a.employee_id for a in rows})
+    emps = {e.id: e for e in db.query(Employee).filter(Employee.id.in_(emp_ids)).all()} if emp_ids else {}
+    result: dict[str, list[dict]] = {}
+    for a in rows:
+        result.setdefault(a.item_id, []).append(_assignment_dict(a, emps.get(a.employee_id)))
+    return result
+
+
+def _to_dict(item: InventoryItem, emp: Employee | None, assignments: list[dict] | None = None) -> dict:
     return {
         "id": item.id,
         "item_code": item.item_code,
@@ -48,6 +85,8 @@ def _to_dict(item: InventoryItem, emp: Employee | None) -> dict:
         "status": item.status,
         "created_by": getattr(item, "created_by", None),
         "is_low_stock": (item.quantity or 0) <= int(getattr(item, "minimum_stock", 0) or 0),
+        "assigned_count": sum(a["quantity"] for a in (assignments or [])),
+        "assignments": assignments or [],
         "created_at": item.created_at.isoformat() if item.created_at else None,
         "updated_at": item.updated_at.isoformat() if item.updated_at else None,
     }
@@ -76,9 +115,10 @@ def list_inventory(
         assigned=assigned, low_stock=low_stock,
     )
     result = []
+    assignments_map = _load_assignments_map(db, [it.id for it in records])
     for it in records:
         emp = db.query(Employee).filter(Employee.id == it.employee_id).first() if it.employee_id else None
-        result.append(_to_dict(it, emp))
+        result.append(_to_dict(it, emp, assignments_map.get(it.id)))
     return paginated_response(data=result, total=total, page=page, per_page=per_page)
 
 
@@ -116,13 +156,45 @@ def export_inventory(
     records, _ = service.get_filtered(
         skip=0, limit=10000,
         search=search, category=category, item_type=item_type,
-        status=status, employee_id=employee_id,
+        status=status,
+        employee_id=None,  # employee filtering is applied below via active assignments
         assigned=assigned, low_stock=low_stock,
     )
+    # Active assignments + full history for the fetched records
+    item_ids = [it.id for it in records]
+    history = []
+    if item_ids:
+        history = (
+            db.query(InventoryAssignment, Employee)
+              .outerjoin(Employee, Employee.id == InventoryAssignment.employee_id)
+              .filter(InventoryAssignment.item_id.in_(item_ids),
+                      InventoryAssignment.deleted_at.is_(None))
+              .order_by(InventoryAssignment.assigned_at.desc())
+              .all()
+        )
+
+    active_by_item: dict = {}
+    for a, e in history:
+        if a.status == "active":
+            active_by_item.setdefault(a.item_id, []).append((a, e))
+
+    filter_emp = employee_id if employee_id else None
+    if filter_emp:
+        records = [
+            it for it in records
+            if any(a.employee_id == filter_emp for a, _ in active_by_item.get(it.id, []))
+        ]
+
     rows = []
     for it in records:
-        emp = db.query(Employee).filter(Employee.id == it.employee_id).first() if it.employee_id else None
-        emp_name = f"{emp.first_name} {emp.last_name}" if emp else ""
+        acts = active_by_item.get(it.id, [])
+        assigned_units = sum(int(a.quantity or 1) for a, _ in acts)
+        in_stock = int(it.quantity or 0)
+        cost = float(getattr(it, "unit_cost", 0) or 0)
+        assigned_to = "; ".join(
+            f"{(f'{e.first_name} {e.last_name}'.strip() if e else 'Unknown')} ({int(a.quantity or 1)})"
+            for a, e in acts
+        )
         rows.append({
             "Item Code": it.item_code,
             "Name": it.name,
@@ -131,25 +203,52 @@ def export_inventory(
             "Type": it.item_type or "",
             "Condition": getattr(it, "condition", "") or "",
             "Location": getattr(it, "location", "") or "",
-            "Qty": int(it.quantity or 0),
+            "Qty In Stock": in_stock,
+            "Assigned Units": assigned_units,
+            "Total Units": in_stock + assigned_units,
             "UoM": getattr(it, "unit_of_measure", "unit"),
             "Min Stock": int(getattr(it, "minimum_stock", 0) or 0),
-            "Low Stock": "Yes" if (it.quantity or 0) <= int(getattr(it, "minimum_stock", 0) or 0) else "No",
-            "Unit Cost": float(getattr(it, "unit_cost", 0) or 0),
-            "Total Value": float((it.quantity or 0) * (getattr(it, "unit_cost", 0) or 0)),
+            "Low Stock": "Yes" if in_stock <= int(getattr(it, "minimum_stock", 0) or 0) else "No",
+            "Unit Cost": cost,
+            "Stock Value": round(in_stock * cost, 2),
+            "Assigned Value": round(assigned_units * cost, 2),
+            "Total Value": round((in_stock + assigned_units) * cost, 2),
             "Serial #": getattr(it, "serial_number", "") or "",
             "Model #": getattr(it, "model_number", "") or "",
             "Manufacturer": getattr(it, "manufacturer", "") or "",
             "Purchase Date": str(it.purchase_date) if getattr(it, "purchase_date", None) else "",
             "Warranty Until": str(it.warranty_end_date) if getattr(it, "warranty_end_date", None) else "",
-            "Assigned Employee ID": emp.employee_id if emp else "",
-            "Assigned Employee": emp_name,
-            "Department": emp.department if emp else "",
-            "Assigned On": str(it.assigned_at) if getattr(it, "assigned_at", None) else "",
-            "Assignment Notes": getattr(it, "assignment_notes", "") or "",
+            "Assigned To": assigned_to,
             "Status": it.status or "",
             "Description": it.description or "",
         })
+
+    # Full assignment history sheet (hand-outs AND returns)
+    item_by_id = {it.id: it for it in records}
+    assignment_rows = []
+    for a, e in history:
+        if filter_emp and a.employee_id != filter_emp:
+            continue
+        it = item_by_id.get(a.item_id)
+        if it is None:
+            continue
+        assignment_rows.append({
+            "Item Code": it.item_code,
+            "Item Name": it.name,
+            "Category": it.category or "",
+            "Type": it.item_type or "",
+            "Employee ID": e.employee_id if e else "",
+            "Employee": f"{e.first_name} {e.last_name}" if e else "",
+            "Department": e.department if e else "",
+            "Qty": int(a.quantity or 1),
+            "Condition at Handover": a.condition or "",
+            "Assigned On": str(a.assigned_at) if getattr(a, "assigned_at", None) else "",
+            "Assignment Status": (a.status or "").capitalize(),
+            "Return Condition": getattr(a, "return_condition", "") or "",
+            "Returned On": str(a.returned_at) if getattr(a, "returned_at", None) else "",
+            "Notes": getattr(a, "notes", "") or "",
+        })
+
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Inventory"
@@ -160,6 +259,14 @@ def export_inventory(
             ws.append([row.get(h) for h in headers])
     else:
         ws.append(["No inventory records found"])
+    ws2 = wb.create_sheet("Assignments")
+    if assignment_rows:
+        headers2 = list(assignment_rows[0].keys())
+        ws2.append(headers2)
+        for row in assignment_rows:
+            ws2.append([row.get(h) for h in headers2])
+    else:
+        ws2.append(["No assignment records found"])
     output = io.BytesIO()
     wb.save(output)
     output.seek(0)
@@ -168,6 +275,17 @@ def export_inventory(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": "attachment; filename=inventory_report.xlsx"}
     )
+
+
+@router.get("/next-code")
+def get_next_item_code(
+    category: str = Query(...),
+    item_type: str = Query("equipment"),
+    db: Session = Depends(get_db),
+    current_user: Any = Depends(require_admin),
+):
+    service = InventoryService(db)
+    return success_response(data=service.get_next_item_code(category, item_type))
 
 
 @router.get("/{item_id}")
@@ -179,7 +297,8 @@ def get_inventory(
     service = InventoryService(db)
     it = service.get_by_id(item_id)
     emp = db.query(Employee).filter(Employee.id == it.employee_id).first() if it.employee_id else None
-    return success_response(data=_to_dict(it, emp))
+    assignments = _load_assignments_map(db, [it.id]).get(it.id)
+    return success_response(data=_to_dict(it, emp, assignments))
 
 
 @router.post("")
@@ -223,7 +342,8 @@ def update_inventory(
         update_data["status"] = "in_stock"
     it = service.update(item_id, update_data)
     emp = db.query(Employee).filter(Employee.id == it.employee_id).first() if it.employee_id else None
-    return success_response(data=_to_dict(it, emp))
+    assignments = _load_assignments_map(db, [it.id]).get(it.id)
+    return success_response(data=_to_dict(it, emp, assignments))
 
 
 @router.delete("/{item_id}")
@@ -245,11 +365,57 @@ def assign_inventory(
     current_user: Any = Depends(require_admin),
 ):
     service = InventoryService(db)
-    assigned_at = payload.assigned_at or date.today()
-    it = service.assign(item_id, payload.employee_id, assigned_at=assigned_at,
-                        assignment_notes=payload.assignment_notes)
+    it = service.assign(
+        item_id,
+        payload.employee_id,
+        quantity=payload.quantity,
+        condition=payload.condition,
+        assigned_at=payload.assigned_at,
+        notes=payload.assignment_notes,
+    )
     emp = db.query(Employee).filter(Employee.id == it.employee_id).first() if it.employee_id else None
-    return success_response(data=_to_dict(it, emp))
+    assignments = _load_assignments_map(db, [it.id]).get(it.id)
+    return success_response(data=_to_dict(it, emp, assignments))
+
+
+@router.get("/{item_id}/assignments")
+def list_item_assignments(
+    item_id: str,
+    db: Session = Depends(get_db),
+    current_user: Any = Depends(require_admin),
+):
+    """Assignment history for an item (active and returned)."""
+    service = InventoryService(db)
+    service.get_by_id(item_id)
+    rows = (
+        db.query(InventoryAssignment)
+            .filter(InventoryAssignment.item_id == item_id,
+                    InventoryAssignment.deleted_at.is_(None))
+            .order_by(InventoryAssignment.created_at.desc())
+            .all()
+    )
+    emp_ids = list({a.employee_id for a in rows})
+    emps = {e.id: e for e in db.query(Employee).filter(Employee.id.in_(emp_ids)).all()} if emp_ids else {}
+    return success_response(data=[_assignment_dict(a, emps.get(a.employee_id)) for a in rows])
+
+
+@router.post("/assignments/{assignment_id}/return")
+def return_inventory_assignment(
+    assignment_id: str,
+    payload: InventoryReturn,
+    db: Session = Depends(get_db),
+    current_user: Any = Depends(require_admin),
+):
+    """Take an assignment back — its units return to stock."""
+    service = InventoryService(db)
+    it = service.return_assignment(
+        assignment_id,
+        return_condition=payload.return_condition,
+        notes=payload.notes,
+    )
+    emp = db.query(Employee).filter(Employee.id == it.employee_id).first() if it.employee_id else None
+    assignments = _load_assignments_map(db, [it.id]).get(it.id)
+    return success_response(data=_to_dict(it, emp, assignments))
 
 
 @router.post("/{item_id}/unassign")
@@ -258,6 +424,8 @@ def unassign_inventory(
     db: Session = Depends(get_db),
     current_user: Any = Depends(require_admin),
 ):
+    """Return every active assignment of this item back to stock."""
     service = InventoryService(db)
     it = service.unassign(item_id)
-    return success_response(data=_to_dict(it, None))
+    assignments = _load_assignments_map(db, [it.id]).get(it.id)
+    return success_response(data=_to_dict(it, None, assignments))

@@ -64,8 +64,17 @@ class InventoryAssign(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
 
     employee_id: str
+    quantity: int = 1
+    condition: Optional[str] = None
     assigned_at: Optional[date] = None
     assignment_notes: Optional[str] = None
+
+
+class InventoryReturn(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+    return_condition: Optional[str] = None
+    notes: Optional[str] = None
 
 
 class InventoryResponse(InventoryBase):

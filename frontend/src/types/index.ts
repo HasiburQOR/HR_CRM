@@ -279,11 +279,29 @@ export interface InventoryItem {
   employee_department?: string | null
   assigned_at?: string | null
   assignment_notes?: string | null
+  assigned_count?: number
+  assignments?: InventoryAssignment[]
   status: string
   created_by?: string | null
   is_low_stock?: boolean
   created_at?: string | null
   updated_at?: string | null
+  [key: string]: any
+}
+
+export interface InventoryAssignment {
+  id: string
+  item_id: string
+  employee_id: string
+  employee_name?: string | null
+  employee_empid?: string | null
+  quantity: number
+  condition?: string | null
+  assigned_at?: string | null
+  returned_at?: string | null
+  return_condition?: string | null
+  status: string
+  notes?: string | null
   [key: string]: any
 }
 

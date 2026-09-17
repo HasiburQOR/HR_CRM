@@ -1,5 +1,5 @@
 import api from "@/lib/axios"
-import type { ApiResponse, InventoryItem } from "@/types"
+import type { ApiResponse, InventoryItem, InventoryAssignment } from "@/types"
 
 export interface InventoryListResponse {
   data: InventoryItem[]
@@ -48,6 +48,11 @@ export const inventoryService = {
     return res.data.data
   },
 
+  async getNextCode(category: string, item_type: string): Promise<string> {
+    const res = await api.get<ApiResponse<string>>("/inventory/next-code", { params: { category, item_type } })
+    return res.data.data
+  },
+
   async getById(id: string): Promise<InventoryItem> {
     const res = await api.get<ApiResponse<InventoryItem>>(`/inventory/${id}`)
     return res.data.data
@@ -67,8 +72,24 @@ export const inventoryService = {
     await api.delete(`/inventory/${id}`)
   },
 
-  async assign(id: string, data: { employee_id: string; assignment_notes?: string }): Promise<InventoryItem> {
+  async assign(
+    id: string,
+    data: { employee_id: string; quantity?: number; condition?: string; assignment_notes?: string }
+  ): Promise<InventoryItem> {
     const res = await api.post<ApiResponse<InventoryItem>>(`/inventory/${id}/assign`, data)
+    return res.data.data
+  },
+
+  async returnAssignment(
+    assignmentId: string,
+    data: { return_condition?: string; notes?: string }
+  ): Promise<InventoryItem> {
+    const res = await api.post<ApiResponse<InventoryItem>>(`/inventory/assignments/${assignmentId}/return`, data)
+    return res.data.data
+  },
+
+  async getItemAssignments(id: string): Promise<InventoryAssignment[]> {
+    const res = await api.get<ApiResponse<InventoryAssignment[]>>(`/inventory/${id}/assignments`)
     return res.data.data
   },
 

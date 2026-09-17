@@ -13,7 +13,7 @@ from app.models.attendance import Attendance
 from app.models.salary import Salary
 from app.models.expense import Expense
 from app.models.leave import LeaveRequest
-from app.models.inventory import InventoryItem
+from app.models.inventory import InventoryItem, InventoryAssignment
 from app.models.requisition import Requisition, RequisitionExpense
 from app.utils.dependencies import get_current_user
 
@@ -383,11 +383,15 @@ def report_inventory(
     assigned: bool | None = Query(None),
     low_stock: bool = Query(False),
 ):
-    q = (
-        db.query(InventoryItem, Employee)
-          .outerjoin(Employee, InventoryItem.employee_id == Employee.id)
-          .filter(InventoryItem.deleted_at.is_(None))
+    # Assignment-aware "active assignment" subquery (replaces the legacy single employee_id column)
+    active_exists = (
+        db.query(InventoryAssignment)
+          .filter(InventoryAssignment.item_id == InventoryItem.id,
+                  InventoryAssignment.status == "active",
+                  InventoryAssignment.deleted_at.is_(None))
     )
+
+    q = db.query(InventoryItem).filter(InventoryItem.deleted_at.is_(None))
     if category and category != "all":
         q = q.filter(InventoryItem.category == category)
     if item_type and item_type != "all":
@@ -395,16 +399,46 @@ def report_inventory(
     if status and status != "all":
         q = q.filter(InventoryItem.status == status)
     if employee_id and employee_id != "all":
-        q = q.filter(InventoryItem.employee_id == employee_id)
+        q = q.filter(active_exists.filter(InventoryAssignment.employee_id == employee_id).exists())
     if assigned is True:
-        q = q.filter(InventoryItem.employee_id.isnot(None))
+        q = q.filter(active_exists.exists())
     elif assigned is False:
-        q = q.filter(InventoryItem.employee_id.is_(None))
+        q = q.filter(~active_exists.exists())
     if low_stock:
         q = q.filter(InventoryItem.quantity <= InventoryItem.minimum_stock)
-    records = q.order_by(InventoryItem.updated_at.desc()).all()
-    data = [
-        {
+
+    items = q.order_by(InventoryItem.updated_at.desc()).all()
+    filter_emp = employee_id if (employee_id and employee_id != "all") else None
+
+    # Full assignment history (with employee info) for the filtered items
+    item_ids = [it.id for it in items]
+    history = []
+    if item_ids:
+        history = (
+            db.query(InventoryAssignment, Employee)
+              .outerjoin(Employee, Employee.id == InventoryAssignment.employee_id)
+              .filter(InventoryAssignment.item_id.in_(item_ids),
+                      InventoryAssignment.deleted_at.is_(None))
+              .order_by(InventoryAssignment.assigned_at.desc())
+              .all()
+        )
+
+    active_by_item: dict = {}
+    for a, e in history:
+        if a.status == "active":
+            active_by_item.setdefault(a.item_id, []).append((a, e))
+
+    data = []
+    for it in items:
+        acts = active_by_item.get(it.id, [])
+        assigned_units = sum(int(a.quantity or 1) for a, _ in acts)
+        in_stock = int(it.quantity or 0)
+        cost = float(getattr(it, "unit_cost", 0) or 0)
+        assigned_to = "; ".join(
+            f"{(f'{e.first_name} {e.last_name}'.strip() if e else 'Unknown')} ({int(a.quantity or 1)})"
+            for a, e in acts
+        )
+        data.append({
             "Item Code": it.item_code,
             "Name": it.name,
             "Category": it.category or "",
@@ -412,28 +446,53 @@ def report_inventory(
             "Type": it.item_type or "",
             "Condition": getattr(it, "condition", "") or "",
             "Location": getattr(it, "location", "") or "",
-            "Qty": int(it.quantity or 0),
+            "Qty In Stock": in_stock,
+            "Assigned Units": assigned_units,
+            "Total Units": in_stock + assigned_units,
             "UoM": getattr(it, "unit_of_measure", "unit"),
             "Min Stock": int(getattr(it, "minimum_stock", 0) or 0),
-            "Low Stock": "Yes" if (it.quantity or 0) <= int(getattr(it, "minimum_stock", 0) or 0) else "No",
-            "Unit Cost": float(getattr(it, "unit_cost", 0) or 0),
-            "Total Value": float((it.quantity or 0) * (getattr(it, "unit_cost", 0) or 0)),
+            "Low Stock": "Yes" if in_stock <= int(getattr(it, "minimum_stock", 0) or 0) else "No",
+            "Unit Cost": cost,
+            "Stock Value (BDT)": round(in_stock * cost, 2),
+            "Assigned Value (BDT)": round(assigned_units * cost, 2),
+            "Total Value (BDT)": round((in_stock + assigned_units) * cost, 2),
             "Serial #": getattr(it, "serial_number", "") or "",
             "Model #": getattr(it, "model_number", "") or "",
             "Manufacturer": getattr(it, "manufacturer", "") or "",
             "Purchase Date": str(it.purchase_date) if getattr(it, "purchase_date", None) else "",
             "Warranty Until": str(it.warranty_end_date) if getattr(it, "warranty_end_date", None) else "",
+            "Assigned To": assigned_to,
+            "Status": it.status or "",
+            "Description": it.description or "",
+        })
+
+    # Full assignment history sheet (hand-outs AND returns)
+    item_by_id = {it.id: it for it in items}
+    assignments = []
+    for a, e in history:
+        if filter_emp and a.employee_id != filter_emp:
+            continue
+        it = item_by_id.get(a.item_id)
+        if it is None:
+            continue
+        assignments.append({
+            "Item Code": it.item_code,
+            "Item Name": it.name,
+            "Category": it.category or "",
+            "Type": it.item_type or "",
             "Employee ID": e.employee_id if e else "",
             "Employee": f"{e.first_name} {e.last_name}" if e else "",
             "Department": e.department if e else "",
-            "Assigned On": str(it.assigned_at) if getattr(it, "assigned_at", None) else "",
-            "Assignment Notes": getattr(it, "assignment_notes", "") or "",
-            "Status": it.status or "",
-            "Description": it.description or "",
-        }
-        for it, e in records
-    ]
-    output = _to_excel(data, "Inventory")
+            "Qty": int(a.quantity or 1),
+            "Condition at Handover": a.condition or "",
+            "Assigned On": str(a.assigned_at) if getattr(a, "assigned_at", None) else "",
+            "Assignment Status": (a.status or "").capitalize(),
+            "Return Condition": getattr(a, "return_condition", "") or "",
+            "Returned On": str(a.returned_at) if getattr(a, "returned_at", None) else "",
+            "Notes": getattr(a, "notes", "") or "",
+        })
+
+    output = _to_excel_multi([("Inventory", data), ("Assignments", assignments)])
     return StreamingResponse(
         output,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -589,18 +648,29 @@ def report_employee_individual(
         })
 
     inventory_rows = []
-    for it in db.query(InventoryItem).filter(InventoryItem.employee_id == emp.id, InventoryItem.deleted_at.is_(None)).order_by(InventoryItem.updated_at.desc()).limit(200).all():
+    for a, it in (
+        db.query(InventoryAssignment, InventoryItem)
+            .join(InventoryItem, InventoryItem.id == InventoryAssignment.item_id)
+            .filter(InventoryAssignment.employee_id == emp.id,
+                    InventoryAssignment.deleted_at.is_(None),
+                    InventoryItem.deleted_at.is_(None))
+            .order_by(InventoryAssignment.assigned_at.desc())
+            .limit(200).all()
+    ):
         inventory_rows.append({
             "Item Code": it.item_code,
             "Name": it.name,
             "Category": it.category or "",
             "Type": it.item_type or "",
             "Serial #": getattr(it, "serial_number", "") or "",
-            "Qty": int(it.quantity or 0),
-            "Condition": getattr(it, "condition", "") or "",
-            "Assigned On": str(it.assigned_at) if getattr(it, "assigned_at", None) else "",
-            "Assignment Notes": getattr(it, "assignment_notes", "") or "",
-            "Status": it.status or "",
+            "Qty": int(a.quantity or 1),
+            "Condition at Handover": a.condition or getattr(it, "condition", "") or "",
+            "Assigned On": str(a.assigned_at) if getattr(a, "assigned_at", None) else "",
+            "Assignment Status": (a.status or "").capitalize(),
+            "Return Condition": getattr(a, "return_condition", "") or "",
+            "Returned On": str(a.returned_at) if getattr(a, "returned_at", None) else "",
+            "Assignment Notes": getattr(a, "notes", "") or "",
+            "Item Status": it.status or "",
         })
 
     output = _to_excel_multi([

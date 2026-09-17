@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react"
 import {
   Plus,
   Package,
@@ -12,7 +12,7 @@ import {
   Filter,
 } from "lucide-react"
 import { inventoryService, type InventoryListParams } from "@/services/inventory.service"
-import type { InventoryItem } from "@/types"
+import type { InventoryItem, InventoryAssignment } from "@/types"
 import { EmployeeSelect } from "@/components/EmployeeSelect"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -92,9 +92,22 @@ export default function Inventory() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [assignTarget, setAssignTarget] = useState<InventoryItem | null>(null)
   const [form, setForm] = useState<Partial<InventoryItem>>({})
-  const [assignForm, setAssignForm] = useState<{ employee_id: string; assignment_notes: string }>({
+  const [assignForm, setAssignForm] = useState<{
+    employee_id: string
+    quantity: number
+    condition: string
+    assignment_notes: string
+  }>({
     employee_id: "",
+    quantity: 1,
+    condition: "",
     assignment_notes: "",
+  })
+  const [returnOpen, setReturnOpen] = useState(false)
+  const [returnTarget, setReturnTarget] = useState<InventoryAssignment | null>(null)
+  const [returnForm, setReturnForm] = useState<{ return_condition: string; notes: string }>({
+    return_condition: "",
+    notes: "",
   })
   const [filters, setFilters] = useState<InventoryListParams>({
     search: "",
@@ -154,6 +167,44 @@ export default function Inventory() {
     }
   }
 
+  const codeGenToken = useRef(0)
+
+  function handleCategoryChange(v: string) {
+    const next = { ...form, category: v }
+    setForm(next)
+    autoGenerateItemCode(next)
+  }
+
+  function handleCustomCategoryChange(e: ChangeEvent<HTMLInputElement>) {
+    const next = { ...form, custom_category: e.target.value } as any
+    setForm(next)
+    autoGenerateItemCode(next)
+  }
+
+  function handleTypeChange(v: string) {
+    const next = { ...form, item_type: v }
+    setForm(next)
+    autoGenerateItemCode(next)
+  }
+
+  async function autoGenerateItemCode(next: Partial<InventoryItem>) {
+    if (editingId) return
+    const category = (next.category ?? form.category) || ""
+    const itemType = (next.item_type ?? form.item_type) || ""
+    const customCategory = ((next as any).custom_category ?? (form as any).custom_category) || ""
+    const effectiveCategory = (category === "custom" ? customCategory : category).trim()
+    if (!effectiveCategory || !itemType) return
+    const token = ++codeGenToken.current
+    try {
+      const code = await inventoryService.getNextCode(effectiveCategory, itemType)
+      if (token === codeGenToken.current) {
+        setForm((prev) => ({ ...prev, item_code: code }))
+      }
+    } catch {
+      // ignore — the user can still type an item code manually
+    }
+  }
+
   function openCreate() {
     setEditingId(null)
     setForm({ quantity: 1, minimum_stock: 0, unit_cost: 0, status: "in_stock", item_type: "equipment" })
@@ -203,7 +254,12 @@ export default function Inventory() {
 
   function openAssign(it: InventoryItem) {
     setAssignTarget(it)
-    setAssignForm({ employee_id: it.employee_id || "", assignment_notes: it.assignment_notes || "" })
+    setAssignForm({
+      employee_id: "",
+      quantity: 1,
+      condition: it.condition || "",
+      assignment_notes: "",
+    })
     setAssignOpen(true)
   }
 
@@ -214,11 +270,22 @@ export default function Inventory() {
         toast({ title: "Select an employee", variant: "destructive" })
         return
       }
+      const qty = Number(assignForm.quantity) || 1
+      if (qty < 1 || qty > (assignTarget.quantity || 0)) {
+        toast({
+          title: "Invalid quantity",
+          description: `Only ${assignTarget.quantity || 0} unit(s) in stock`,
+          variant: "destructive",
+        })
+        return
+      }
       await inventoryService.assign(assignTarget.id, {
         employee_id: assignForm.employee_id,
+        quantity: qty,
+        condition: assignForm.condition || undefined,
         assignment_notes: assignForm.assignment_notes || undefined,
       })
-      toast({ title: "Assigned", variant: "success" })
+      toast({ title: "Assigned", description: `${qty} unit(s) handed over — stock updated.`, variant: "success" })
       setAssignOpen(false)
       loadAll()
     } catch (e: any) {
@@ -226,10 +293,25 @@ export default function Inventory() {
     }
   }
 
-  async function doUnassign(it: InventoryItem) {
+  function openReturn(a: InventoryAssignment) {
+    setReturnTarget(a)
+    setReturnForm({ return_condition: a.condition || "", notes: "" })
+    setReturnOpen(true)
+  }
+
+  async function submitReturn() {
     try {
-      await inventoryService.unassign(it.id)
-      toast({ title: "Unassigned", variant: "success" })
+      if (!returnTarget) return
+      if (!returnForm.return_condition) {
+        toast({ title: "Select the condition on return", variant: "destructive" })
+        return
+      }
+      await inventoryService.returnAssignment(returnTarget.id, {
+        return_condition: returnForm.return_condition,
+        notes: returnForm.notes || undefined,
+      })
+      toast({ title: "Returned to stock", description: "Quantity added back to stock.", variant: "success" })
+      setReturnOpen(false)
       loadAll()
     } catch (e: any) {
       toast({ title: "Failed", description: e?.message, variant: "destructive" })
@@ -272,7 +354,10 @@ export default function Inventory() {
     () => rows.reduce((s, r) => s + (Number(r.quantity || 0) * Number(r.unit_cost || 0)), 0),
     [rows]
   )
-  const assignedCount = rows.filter((r) => r.employee_id).length
+  const assignedCount = rows.reduce(
+    (n, r) => n + (Number(r.assigned_count || 0) || (r.employee_id ? 1 : 0)),
+    0
+  )
   const lowStockCount = rows.filter((r) => r.is_low_stock || (Number(r.minimum_stock || 0) > 0 && Number(r.quantity || 0) <= Number(r.minimum_stock || 0))).length
 
   return (
@@ -301,29 +386,10 @@ export default function Inventory() {
               <div className="space-y-4 py-4 overflow-y-auto pr-1">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label>Item Code *</Label>
-                    <Input
-                      value={form.item_code || ""}
-                      onChange={(e) => setForm({ ...form, item_code: e.target.value })}
-                      placeholder="e.g. LAP-001, PEN-RED"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Item Name *</Label>
-                    <Input
-                      value={form.name || ""}
-                      onChange={(e) => setForm({ ...form, name: e.target.value })}
-                      placeholder="e.g. Dell Latitude 5420"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
                     <Label>Category *</Label>
                     <Select
                       value={form.category || undefined}
-                      onValueChange={(v) => setForm({ ...form, category: v })}
+                      onValueChange={handleCategoryChange}
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="Select category" />
@@ -340,7 +406,7 @@ export default function Inventory() {
                         className="mt-2"
                         placeholder="Enter new category name"
                         value={(form as any).custom_category || ""}
-                        onChange={(e) => setForm({ ...form, custom_category: e.target.value } as any)}
+                        onChange={handleCustomCategoryChange}
                       />
                     )}
                   </div>
@@ -348,7 +414,7 @@ export default function Inventory() {
                     <Label>Item Type</Label>
                     <Select
                       value={form.item_type || undefined}
-                      onValueChange={(v) => setForm({ ...form, item_type: v })}
+                      onValueChange={handleTypeChange}
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="Select type" />
@@ -362,9 +428,32 @@ export default function Inventory() {
                   </div>
                 </div>
 
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Item Code *</Label>
+                    <Input
+                      value={form.item_code || ""}
+                      onChange={(e) => setForm({ ...form, item_code: e.target.value })}
+                      placeholder="Auto-generated after Category & Item Type"
+                      className="font-mono"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Auto-generated from Category + Item Type (you can still edit it).
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Item Name *</Label>
+                    <Input
+                      value={form.name || ""}
+                      onChange={(e) => setForm({ ...form, name: e.target.value })}
+                      placeholder="e.g. Dell Latitude 5420"
+                    />
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-3 gap-4">
                   <div className="space-y-2">
-                    <Label>Quantity</Label>
+                    <Label>Quantity (Stock on Hand)</Label>
                     <Input
                       type="number"
                       min={0}
@@ -373,6 +462,9 @@ export default function Inventory() {
                         setForm({ ...form, quantity: e.target.value === "" ? 0 : Number(e.target.value) })
                       }
                     />
+                    <p className="text-xs text-muted-foreground">
+                      Units currently in stock. Assigning to employees will reduce this number.
+                    </p>
                   </div>
                   <div className="space-y-2">
                     <Label>Minimum Stock Alert</Label>
@@ -512,13 +604,11 @@ export default function Inventory() {
           <Dialog open={assignOpen} onOpenChange={setAssignOpen}>
             <DialogContent className="max-w-lg">
               <DialogHeader>
-                <DialogTitle>
-                  {assignTarget?.employee_id ? "Reassign Item" : "Assign Item to Employee"}
-                </DialogTitle>
+                <DialogTitle>Assign Item to Employee</DialogTitle>
                 {assignTarget && (
                   <div className="text-sm text-muted-foreground">
                     <span className="font-medium text-foreground">{assignTarget.name}</span>
-                    {" "}— Code: {assignTarget.item_code}
+                    {" "}— Code: {assignTarget.item_code} — Stock: {assignTarget.quantity} unit(s)
                   </div>
                 )}
               </DialogHeader>
@@ -531,12 +621,45 @@ export default function Inventory() {
                     placeholder="Search employee by ID or name..."
                   />
                 </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Quantity *</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={assignTarget?.quantity ?? 1}
+                      value={assignForm.quantity}
+                      onChange={(e) =>
+                        setAssignForm({ ...assignForm, quantity: Math.max(1, Number(e.target.value) || 1) })
+                      }
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {assignTarget?.quantity ?? 0} unit(s) available in stock
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Condition at Handover</Label>
+                    <Select
+                      value={assignForm.condition || undefined}
+                      onValueChange={(v) => setAssignForm({ ...assignForm, condition: v })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select condition" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {CONDITION_OPTIONS.map((c) => (
+                          <SelectItem key={c} value={c}>{c}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
                 <div className="space-y-2">
                   <Label>Assignment Notes (optional)</Label>
                   <Textarea
                     value={assignForm.assignment_notes}
                     onChange={(e) => setAssignForm({ ...assignForm, assignment_notes: e.target.value })}
-                    placeholder="Condition when handed over, accessories included, expected return date..."
+                    placeholder="Accessories included, expected return date, etc."
                     rows={3}
                   />
                 </div>
@@ -545,6 +668,58 @@ export default function Inventory() {
                 <Button variant="ghost" onClick={() => setAssignOpen(false)}>Cancel</Button>
                 <Button onClick={submitAssign} className="gap-2">
                   <UserPlus className="h-4 w-4" /> Confirm Assign
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={returnOpen} onOpenChange={setReturnOpen}>
+            <DialogContent className="max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Return Item to Stock</DialogTitle>
+                {returnTarget && (
+                  <div className="text-sm text-muted-foreground">
+                    <span className="font-medium text-foreground">
+                      {returnTarget.employee_name || "Employee"}
+                    </span>
+                    {" "}returns {returnTarget.quantity} unit(s) — the quantity will be added back to stock.
+                  </div>
+                )}
+              </DialogHeader>
+              <div className="space-y-4 py-2">
+                <div className="space-y-2">
+                  <Label>Condition on Return *</Label>
+                  <Select
+                    value={returnForm.return_condition || undefined}
+                    onValueChange={(v) => setReturnForm({ ...returnForm, return_condition: v })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select condition" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CONDITION_OPTIONS.map((c) => (
+                        <SelectItem key={c} value={c}>{c}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    This also updates the product's condition in stock (e.g. mark it Damaged if returned broken).
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Return Notes (optional)</Label>
+                  <Textarea
+                    value={returnForm.notes}
+                    onChange={(e) => setReturnForm({ ...returnForm, notes: e.target.value })}
+                    placeholder="Anything to record about the return..."
+                    rows={3}
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="ghost" onClick={() => setReturnOpen(false)}>Cancel</Button>
+                <Button onClick={submitReturn} className="gap-2">
+                  <UserMinus className="h-4 w-4" /> Confirm Return
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -774,6 +949,11 @@ export default function Inventory() {
                               <AlertTriangle className="h-3 w-3" /> Low ({r.minimum_stock})
                             </span>
                           )}
+                          {Number(r.assigned_count || 0) > 0 && (
+                            <span className="text-[10px] text-indigo-600">
+                              {r.assigned_count} assigned
+                            </span>
+                          )}
                         </div>
                       </TableCell>
                       <TableCell className="text-xs">{r.condition || "—"}</TableCell>
@@ -784,18 +964,32 @@ export default function Inventory() {
                           {!r.serial_number && !r.model_number && <span className="text-muted-foreground">—</span>}
                         </div>
                       </TableCell>
-                      <TableCell className="min-w-[160px]">
-                        {r.employee_id ? (
-                          <div className="flex flex-col">
-                            <span className="font-medium">{r.employee_name || "Assigned"}</span>
-                            <span className="text-xs text-muted-foreground">
-                              ID: {r.employee_empid || r.employee_id?.slice(0, 8)}
-                            </span>
-                            {r.assigned_at && (
-                              <span className="text-[10px] text-muted-foreground">
-                                Since {formatDate(r.assigned_at)}
-                              </span>
-                            )}
+                      <TableCell className="min-w-[200px]">
+                        {(r.assignments?.length || 0) > 0 ? (
+                          <div className="flex flex-col gap-2">
+                            {r.assignments!.map((a) => (
+                              <div key={a.id} className="flex items-start justify-between gap-2">
+                                <div className="flex flex-col">
+                                  <span className="font-medium">{a.employee_name || "Assigned"}</span>
+                                  <span className="text-xs text-muted-foreground">
+                                    ID: {a.employee_empid || a.employee_id?.slice(0, 8)}
+                                  </span>
+                                  <span className="text-[10px] text-muted-foreground">
+                                    {a.quantity > 1 ? `${a.quantity} unit(s) · ` : ""}
+                                    {a.condition ? `${a.condition} · ` : ""}
+                                    Since {formatDate(a.assigned_at)}
+                                  </span>
+                                </div>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => openReturn(a)}
+                                  title="Return to stock"
+                                >
+                                  <UserMinus className="h-4 w-4 text-destructive" />
+                                </Button>
+                              </div>
+                            ))}
                           </div>
                         ) : (
                           <span className="text-muted-foreground text-sm">— In stock —</span>
@@ -814,15 +1008,15 @@ export default function Inventory() {
                           <Button size="sm" variant="ghost" onClick={() => openEdit(r)} title="Edit">
                             <Edit2 className="h-4 w-4" />
                           </Button>
-                          {r.employee_id ? (
-                            <Button size="sm" variant="ghost" onClick={() => doUnassign(r)} title="Unassign">
-                              <UserMinus className="h-4 w-4 text-destructive" />
-                            </Button>
-                          ) : (
-                            <Button size="sm" variant="ghost" onClick={() => openAssign(r)} title="Assign">
-                              <UserPlus className="h-4 w-4 text-indigo-600" />
-                            </Button>
-                          )}
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => openAssign(r)}
+                            disabled={(r.quantity || 0) <= 0}
+                            title="Assign to employee"
+                          >
+                            <UserPlus className="h-4 w-4 text-indigo-600" />
+                          </Button>
                           <Button
                             size="sm"
                             variant="ghost"

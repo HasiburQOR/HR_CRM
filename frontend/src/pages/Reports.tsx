@@ -331,7 +331,7 @@ export default function Reports() {
         />
         <ReportCard
           title="Inventory Report"
-          description="Equipment & supplies with assignments"
+          description="Stock levels, values & full assignment/return history"
           icon={Package}
           iconBg="bg-violet-600"
           onConfigure={() => openConfigure("inventory")}
