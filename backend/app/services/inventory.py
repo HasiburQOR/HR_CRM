@@ -1,6 +1,6 @@
 import re
 
-from datetime import date
+from datetime import date, datetime
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -27,6 +27,66 @@ def _category_code(category: str) -> str:
     if len(words) == 1:
         return words[0][:3].upper()
     return "".join(w[0] for w in words).upper()
+
+
+class _RowError(Exception):
+    """A single bad row in an uploaded spreadsheet (message is user-facing)."""
+
+
+def _clean_str(val) -> str | None:
+    """Trim a cell; None / empty / whitespace-only become None."""
+    if val is None:
+        return None
+    s = str(val).strip()
+    return s or None
+
+
+def _parse_date_cell(val) -> date | None:
+    """Accept native Excel dates/datetimes plus several common string formats."""
+    if val is None or (isinstance(val, str) and not val.strip()):
+        return None
+    if isinstance(val, datetime):
+        return val.date()
+    if isinstance(val, date):
+        return val
+    s = str(val).strip()
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%m/%d/%Y", "%d.%m.%Y", "%Y/%m/%d"):
+        try:
+            return datetime.strptime(s, fmt).date()
+        except ValueError:
+            continue
+    raise _RowError(f"'{s}' is not a valid date (use YYYY-MM-DD)")
+
+
+def _parse_int_cell(val, field: str, default: int | None = None) -> int | None:
+    blank = val is None or (isinstance(val, str) and not val.strip())
+    if blank:
+        return default
+    if isinstance(val, bool):
+        raise _RowError(f"{field} must be a whole number")
+    try:
+        num = float(val)
+    except (TypeError, ValueError):
+        raise _RowError(f"{field} must be a whole number, got '{val}'")
+    if not num.is_integer():
+        raise _RowError(f"{field} must be a whole number, got '{val}'")
+    return int(num)
+
+
+def _parse_float_cell(val, field: str, default: float | None = None) -> float | None:
+    blank = val is None or (isinstance(val, str) and not val.strip())
+    if blank:
+        return default
+    if isinstance(val, bool):
+        raise _RowError(f"{field} must be a number")
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        s = str(val).replace(",", "").strip()  # allow currency strings like 1,450.00
+        try:
+            return float(s)
+        except ValueError:
+            raise _RowError(f"{field} must be a number, got '{val}'")
 
 
 class InventoryService:
@@ -75,6 +135,247 @@ class InventoryService:
     def delete(self, item_id: str):
         record = self.get_by_id(item_id)
         return self.repo.delete(item_id)
+
+    # ----- bulk import (Excel upload) -----
+
+    _CONDITIONS = ["New", "Like New", "Good", "Fair", "Damaged", "Needs Repair"]
+
+    _ITEM_TYPE_ALIASES = {
+        "equipment": "equipment",
+        "supplies": "supplies", "office supplies": "supplies", "supply": "supplies",
+        "furniture": "furniture",
+        "devices": "devices", "device": "devices", "laptop": "devices", "laptop/phone": "devices",
+        "consumable": "consumable", "consumables": "consumable",
+        "access_card": "access_card", "access card": "access_card", "accesscard": "access_card",
+        "key": "key", "key / fob": "key", "key/fob": "key", "fob": "key",
+        "other": "other",
+    }
+
+    _STATUS_ALIASES = {
+        "in_stock": "in_stock", "instock": "in_stock",
+        "assigned": "assigned",
+        "low_stock": "low_stock",
+        "out_of_stock": "out_of_stock", "outofstock": "out_of_stock",
+        "damaged": "damaged", "retired": "retired", "reserved": "reserved",
+    }
+
+    def import_rows(self, rows: list[dict], created_by: str | None = None, max_errors: int = 100) -> dict:
+        """Upsert inventory items parsed from an uploaded spreadsheet.
+
+        Rows are keyed on item_code: an existing (non-deleted) item with the
+        same code is UPDATED — only the cells the user filled in are applied,
+        blank cells never erase existing data.  Rows with a blank code are
+        created with an auto-generated code.  Bad rows are skipped and
+        reported; everything else is committed in a single transaction.
+        """
+        # Employee-ID (e.g. EMP-001) → employees.id lookup, built once.
+        emp_map = {
+            (e.employee_id or "").strip().upper(): e.id
+            for e in self.db.query(Employee).filter(Employee.deleted_at.is_(None)).all()
+            if e.employee_id
+        }
+
+        created = updated = 0
+        errors: list[dict] = []
+        touched: dict[str, InventoryItem] = {}  # item codes seen/added in this import
+
+        for rec in rows:
+            row_no = rec.get("_row")
+            try:
+                item, is_new = self._upsert_row(rec, emp_map, touched, created_by)
+            except _RowError as exc:
+                errors.append({"row": row_no, "message": str(exc)})
+                continue
+            if item is None:
+                continue  # completely blank row
+            touched[item.item_code] = item
+            if is_new:
+                created += 1
+            else:
+                updated += 1
+
+        if created or updated:
+            try:
+                self.db.commit()
+            except Exception as exc:
+                self.db.rollback()
+                raise HTTPException(status_code=500, detail=f"Failed to save inventory items: {exc}")
+
+        parts = [f"{created} item(s) created", f"{updated} item(s) updated"]
+        if errors:
+            parts.append(f"{len(errors)} row(s) skipped")
+        return {
+            "created": created,
+            "updated": updated,
+            "failed": len(errors),
+            "errors": errors[:max_errors],
+            "message": ", ".join(parts) + ".",
+        }
+
+    def _upsert_row(self, rec: dict, emp_map: dict, touched: dict,
+                    created_by: str | None) -> tuple[InventoryItem | None, bool]:
+        """Validate one parsed sheet row and create-or-update its item.
+
+        Raises _RowError with a user-facing message when the row is invalid.
+        Returns (item, is_new); (None, False) for a completely blank row.
+        """
+        # -- required text fields ------------------------------------------
+        name = _clean_str(rec.get("name"))
+        category = _clean_str(rec.get("category"))
+        item_code = _clean_str(rec.get("item_code"))
+        if not name and not category and not item_code:
+            return None, False  # nothing identifying this row — skip silently
+        if not item_code:
+            # no code means this row must create an item → name + category required
+            if not name:
+                raise _RowError("Name is required")
+            if not category:
+                raise _RowError("Category is required")
+
+        # -- normalised enums ------------------------------------------------
+        item_type = None
+        item_type_raw = _clean_str(rec.get("item_type"))
+        if item_type_raw:
+            item_type = self._ITEM_TYPE_ALIASES.get(re.sub(r"\s+", " ", item_type_raw.lower()))
+            if not item_type:
+                raise _RowError(
+                    f"Item Type '{item_type_raw}' is invalid "
+                    "(use: equipment, supplies, furniture, devices, consumable, access_card, key, other)"
+                )
+
+        condition = None
+        condition_raw = _clean_str(rec.get("condition"))
+        if condition_raw:
+            condition = next((c for c in self._CONDITIONS if c.lower() == condition_raw.lower()), None)
+            if not condition:
+                raise _RowError(f"Condition '{condition_raw}' is invalid (use: {', '.join(self._CONDITIONS)})")
+
+        status = None
+        status_raw = _clean_str(rec.get("status"))
+        if status_raw:
+            status = self._STATUS_ALIASES.get(re.sub(r"[\s_-]+", "_", status_raw.lower()))
+            if not status:
+                raise _RowError(
+                    f"Status '{status_raw}' is invalid "
+                    "(use: in_stock, assigned, low_stock, out_of_stock, damaged, retired, reserved)"
+                )
+
+        # -- numbers ----------------------------------------------------------
+        quantity = _parse_int_cell(rec.get("quantity"), "Quantity")
+        minimum_stock = _parse_int_cell(rec.get("minimum_stock"), "Min Stock")
+        unit_cost = _parse_float_cell(rec.get("unit_cost"), "Unit Cost")
+        if quantity is not None and quantity < 0:
+            raise _RowError("Quantity must be 0 or more")
+        if minimum_stock is not None and minimum_stock < 0:
+            raise _RowError("Min Stock must be 0 or more")
+        if unit_cost is not None and unit_cost < 0:
+            raise _RowError("Unit Cost must be 0 or more")
+
+        # -- dates -------------------------------------------------------------
+        purchase_date = _parse_date_cell(rec.get("purchase_date"))
+        warranty_end_date = _parse_date_cell(rec.get("warranty_end_date"))
+        assigned_at = _parse_date_cell(rec.get("assigned_at"))
+
+        # -- employee reference (EMP-001 → employees.id) ------------------------
+        employee_id = None
+        employee_ref = _clean_str(rec.get("employee_ref"))
+        if employee_ref:
+            employee_id = emp_map.get(employee_ref.upper())
+            if not employee_id:
+                raise _RowError(f"Employee ID '{employee_ref}' was not found")
+
+        # -- assemble only the provided (non-blank) fields ------------------------
+        provided: dict = {}
+        if name is not None:
+            provided["name"] = name
+        if category is not None:
+            provided["category"] = category
+        if item_type is not None:
+            provided["item_type"] = item_type
+        for key in ("sub_category", "description", "condition", "location",
+                    "serial_number", "model_number", "manufacturer", "assignment_notes"):
+            val = _clean_str(rec.get(key))
+            if val is not None:
+                provided[key] = val
+        unit = _clean_str(rec.get("unit_of_measure"))
+        if unit:
+            provided["unit_of_measure"] = unit
+        if quantity is not None:
+            provided["quantity"] = quantity
+        if minimum_stock is not None:
+            provided["minimum_stock"] = minimum_stock
+        if unit_cost is not None:
+            provided["unit_cost"] = unit_cost
+        if purchase_date is not None:
+            provided["purchase_date"] = purchase_date
+        if warranty_end_date is not None:
+            provided["warranty_end_date"] = warranty_end_date
+        if assigned_at is not None:
+            provided["assigned_at"] = assigned_at
+        if employee_id is not None:
+            provided["employee_id"] = employee_id
+        if status is not None:
+            provided["status"] = status
+
+        return self._apply_row(item_code=item_code, provided=provided,
+                               employee_id=employee_id, status=status, touched=touched,
+                               created_by=created_by)
+
+    def _apply_row(self, item_code: str | None, provided: dict, employee_id: str | None,
+                   status: str | None, touched: dict, created_by: str | None) -> tuple[InventoryItem, bool]:
+        """Create or update the item a validated sheet row refers to."""
+        existing: InventoryItem | None = None
+        if item_code:
+            existing = touched.get(item_code) or (
+                self.db.query(InventoryItem)
+                    .filter(InventoryItem.item_code == item_code,
+                            InventoryItem.deleted_at.is_(None))
+                    .first()
+            )
+        if existing is not None:
+            fields = dict(provided)  # the code itself is the match key, never changed here
+            if employee_id is not None and not existing.employee_id and fields.get("assigned_at") is None:
+                fields["assigned_at"] = date.today()
+            if status is None and (employee_id is not None or "quantity" in fields or "minimum_stock" in fields):
+                eff_qty = fields.get("quantity", existing.quantity or 0)
+                eff_min = fields.get("minimum_stock", existing.minimum_stock or 0)
+                fields["status"] = "assigned" if employee_id is not None else self._compute_status(
+                    existing.status, eff_qty, eff_min, False)
+            for field, value in fields.items():
+                setattr(existing, field, value)
+            return existing, False
+
+        # -- create ------------------------------------------------------------
+        if not provided.get("name") or not provided.get("category"):
+            raise _RowError(
+                f"Item Code '{item_code}' was not found — Name and Category are required to create it"
+                if item_code else "Name and Category are required"
+            )
+        if not item_code:
+            item_code = self.get_next_item_code(provided["category"], provided.get("item_type") or "equipment")
+            # The DB query can't see rows added earlier in this same import
+            # (autoflush is off), so bump past any code we already handed out.
+            while item_code in touched:
+                m = re.match(r"^(.*?)(\d+)$", item_code)
+                item_code = f"{m.group(1)}{int(m.group(2)) + 1:0{len(m.group(2))}d}" if m else f"{item_code}-2"
+        payload = {
+            "item_code": item_code,
+            "quantity": provided.get("quantity", 1),
+            "minimum_stock": provided.get("minimum_stock", 0),
+            "unit_cost": provided.get("unit_cost", 0.0),
+            "unit_of_measure": provided.get("unit_of_measure", "unit"),
+            "status": status or (
+                "assigned" if employee_id is not None else self._compute_status(
+                    "in_stock", provided.get("quantity", 1), provided.get("minimum_stock", 0), False)
+            ),
+            "created_by": created_by,
+        }
+        payload.update({k: v for k, v in provided.items() if k not in payload})
+        if employee_id is not None and "assigned_at" not in payload:
+            payload["assigned_at"] = date.today()  # same default as the create route
+        item = InventoryItem(**payload)
+        self.db.add(item)
+        return item, True
 
     # ----- stock in/out (assignments to employees) -----
 

@@ -10,6 +10,9 @@ import {
   AlertTriangle,
   Search,
   Filter,
+  FileSpreadsheet,
+  Upload,
+  Loader2,
 } from "lucide-react"
 import { inventoryService, type InventoryListParams } from "@/services/inventory.service"
 import type { InventoryItem, InventoryAssignment } from "@/types"
@@ -118,6 +121,10 @@ export default function Inventory() {
     low_stock: false,
   })
   const { toast } = useToast()
+
+  // Excel import
+  const importRef = useRef<HTMLInputElement>(null)
+  const [importing, setImporting] = useState(false)
 
   useEffect(() => {
     loadAll()
@@ -350,6 +357,57 @@ export default function Inventory() {
     }
   }
 
+  async function downloadTemplate() {
+    try {
+      const blob = await inventoryService.downloadTemplate()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = "inventory_template.xlsx"
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      toast({ title: "Template downloaded", description: "Fill it in and upload via Import Excel" })
+    } catch (e: any) {
+      toast({ title: "Failed to download template", description: e?.message, variant: "destructive" })
+    }
+  }
+
+  async function handleImportExcel(e: ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0]
+    if (!f) return
+    setImporting(true)
+    try {
+      const res = await inventoryService.importExcel(f)
+      const summary =
+        `${res.created} created, ${res.updated} updated` + (res.failed ? `, ${res.failed} skipped` : "")
+      const firstErrors = (res.errors || [])
+        .slice(0, 3)
+        .map((er) => `Row ${er.row}: ${er.message}`)
+        .join(" • ")
+      if (res.failed) {
+        toast({
+          title: "Import finished with errors",
+          description: firstErrors ? `${summary} — ${firstErrors}` : summary,
+          variant: "destructive",
+        })
+      } else {
+        toast({ title: "Inventory imported", description: summary, variant: "success" })
+      }
+      loadAll()
+    } catch (err: any) {
+      toast({
+        title: "Import failed",
+        description: err?.response?.data?.detail || err?.message || "Could not parse the file",
+        variant: "destructive",
+      })
+    } finally {
+      setImporting(false)
+      if (importRef.current) importRef.current.value = ""
+    }
+  }
+
   const totalValue = useMemo(
     () => rows.reduce((s, r) => s + (Number(r.quantity || 0) * Number(r.unit_cost || 0)), 0),
     [rows]
@@ -373,6 +431,35 @@ export default function Inventory() {
           <Button variant="secondary" onClick={doExport} className="gap-2">
             <Download className="h-4 w-4" /> Export Excel
           </Button>
+          <Button
+            variant="secondary"
+            onClick={downloadTemplate}
+            className="gap-2"
+            title="Download a blank Excel template in the correct format"
+          >
+            <FileSpreadsheet className="h-4 w-4" /> Template
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => importRef.current?.click()}
+            disabled={importing}
+            className="gap-2"
+            title="Bulk create/update inventory items from an Excel file"
+          >
+            {importing ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Upload className="h-4 w-4" />
+            )}
+            {importing ? "Importing..." : "Import Excel"}
+          </Button>
+          <input
+            ref={importRef}
+            type="file"
+            accept=".xlsx,.xlsm"
+            onChange={handleImportExcel}
+            className="hidden"
+          />
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
               <Button onClick={openCreate} className="gap-2">

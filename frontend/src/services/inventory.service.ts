@@ -32,6 +32,19 @@ export interface InventoryListParams {
   low_stock?: boolean
 }
 
+export interface InventoryImportError {
+  row: number
+  message: string
+}
+
+export interface InventoryImportResult {
+  created: number
+  updated: number
+  failed: number
+  errors: InventoryImportError[]
+  message: string
+}
+
 export const inventoryService = {
   async getAll(params: InventoryListParams = {}): Promise<InventoryListResponse> {
     const res = await api.get<InventoryListResponse>("/inventory", { params })
@@ -101,5 +114,17 @@ export const inventoryService = {
   async exportExcel(params: InventoryListParams = {}): Promise<Blob> {
     const res = await api.get("/inventory/export", { params, responseType: "blob" })
     return res.data
+  },
+
+  async downloadTemplate(): Promise<Blob> {
+    const res = await api.get("/inventory/template", { responseType: "blob" })
+    return res.data as unknown as Blob
+  },
+
+  async importExcel(file: File): Promise<InventoryImportResult> {
+    const form = new FormData()
+    form.append("file", file)
+    const res = await api.post("/inventory/import-excel", form)
+    return res.data as unknown as InventoryImportResult
   },
 }
