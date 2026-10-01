@@ -16,6 +16,7 @@ import {
   Unlock,
   Info,
   Filter,
+  ShieldAlert,
 } from "lucide-react"
 import { attendanceService } from "@/services/attendance.service"
 import { employeeService } from "@/services/employee.service"
@@ -148,6 +149,9 @@ export default function Attendance() {
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [editWindowOpen, setEditWindowOpen] = useState(false)
   const [togglingWindow, setTogglingWindow] = useState(false)
+  const [lockStatus, setLockStatus] = useState<{ locked: boolean; reason: string | null }>({ locked: false, reason: null })
+  const [lockedEmployees, setLockedEmployees] = useState<Array<{ id: string; employee_id: string; name: string; reason: string | null }>>([])
+  const [unlockingId, setUnlockingId] = useState<string | null>(null)
 
   const [filters, setFilters] = useState<{
     employeeId: string
@@ -161,7 +165,12 @@ export default function Attendance() {
 
   useEffect(() => {
     loadPermissions()
-  }, [])
+    if (isEmployee) {
+      loadLockStatus()
+    } else {
+      loadLockedEmployees()
+    }
+  }, [isEmployee])
 
   // Reload whenever filters change (auto-apply)
   useEffect(() => {
@@ -229,6 +238,37 @@ export default function Attendance() {
       setEditWindowOpen(Boolean(res?.employee_edit_enabled))
     } catch {
       setEditWindowOpen(false)
+    }
+  }
+
+  async function loadLockStatus() {
+    try {
+      const res = await attendanceService.getLockStatus()
+      setLockStatus(res || { locked: false, reason: null })
+    } catch {
+      setLockStatus({ locked: false, reason: null })
+    }
+  }
+
+  async function loadLockedEmployees() {
+    try {
+      const res = await attendanceService.getLockedEmployees()
+      setLockedEmployees(Array.isArray(res) ? res : [])
+    } catch {
+      setLockedEmployees([])
+    }
+  }
+
+  async function unlockEmployee(employeeId: string) {
+    try {
+      setUnlockingId(employeeId)
+      await attendanceService.unlockEmployee(employeeId)
+      toast({ title: "Attendance unlocked", variant: "success" })
+      loadLockedEmployees()
+    } catch (e: any) {
+      toast({ title: "Failed to unlock", description: e?.message, variant: "destructive" })
+    } finally {
+      setUnlockingId(null)
     }
   }
 
@@ -315,6 +355,7 @@ export default function Attendance() {
       load()
     } catch (e: any) {
       toast({ title: "Check in failed", description: e?.message, variant: "destructive" })
+      if (isEmployee) loadLockStatus()
     } finally {
       setBusy(false)
     }
@@ -338,6 +379,7 @@ export default function Attendance() {
       load()
     } catch (e: any) {
       toast({ title: "Check out failed", description: e?.message, variant: "destructive" })
+      if (isEmployee) loadLockStatus()
     } finally {
       setBusy(false)
     }
@@ -461,7 +503,7 @@ export default function Attendance() {
             </div>
           </CardHeader>
           <CardContent>
-            <Button className="w-full" onClick={() => openAction("in")}>
+            <Button className="w-full" onClick={() => openAction("in")} disabled={isEmployee && lockStatus.locked}>
               <LogIn className="mr-2 h-4 w-4" /> Check In
             </Button>
           </CardContent>
@@ -477,12 +519,59 @@ export default function Attendance() {
             </div>
           </CardHeader>
           <CardContent>
-            <Button className="w-full" variant="default" onClick={() => openAction("out")}>
+            <Button className="w-full" variant="default" onClick={() => openAction("out")} disabled={isEmployee && lockStatus.locked}>
               <LogOut className="mr-2 h-4 w-4" /> Check Out
             </Button>
           </CardContent>
         </Card>
       </div>
+
+      {isEmployee && lockStatus.locked && (
+        <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+          <ShieldAlert className="h-4 w-4 mt-0.5 shrink-0" />
+          <div>
+            <span className="font-medium">Your attendance is locked.</span>{" "}
+            {lockStatus.reason || "You missed a check-in or check-out deadline."} Contact an administrator to unlock it.
+          </div>
+        </div>
+      )}
+
+      {!isEmployee && (
+        <Card className={lockedEmployees.length > 0 ? "border-red-300 bg-red-50/40" : undefined}>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <CardTitle className={`flex items-center gap-2 text-sm ${lockedEmployees.length > 0 ? "text-red-800" : ""}`}>
+                  <ShieldAlert className="h-4 w-4" /> Locked Employees ({lockedEmployees.length})
+                </CardTitle>
+                <CardDescription>
+                  Employees are locked automatically when they miss the 11:15 AM check-in or 11:30 PM check-out (Fridays excluded). Unlock them here.
+                </CardDescription>
+              </div>
+              <Button variant="outline" size="sm" onClick={loadLockedEmployees}>
+                Refresh
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {lockedEmployees.length === 0 ? (
+              <div className="text-sm text-muted-foreground">No employees are locked right now.</div>
+            ) : (
+              lockedEmployees.map((le) => (
+                <div key={le.id} className="flex items-center justify-between rounded-md border bg-white p-2">
+                  <div>
+                    <div className="text-sm font-medium">{le.name} <span className="font-mono text-[10px] text-muted-foreground">{le.employee_id}</span></div>
+                    <div className="text-xs text-muted-foreground">{le.reason}</div>
+                  </div>
+                  <Button size="sm" variant="outline" onClick={() => unlockEmployee(le.id)} disabled={unlockingId === le.id}>
+                    <Unlock className="mr-2 h-3.5 w-3.5" /> {unlockingId === le.id ? "Unlocking…" : "Unlock"}
+                  </Button>
+                </div>
+              ))
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {isEmployee && editWindowOpen && (
         <div className="flex items-start gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
@@ -497,8 +586,18 @@ export default function Attendance() {
 
       <div className="flex items-center justify-between">
         <div className="text-sm text-muted-foreground">
-          Tip: Use <span className="font-medium">Check In</span> then <span className="font-medium">Check Out</span>.
-          Use "Full Record" to create a manual entry with both times.
+          {isEmployee ? (
+            <>
+              Check in by <span className="font-medium">11:15 AM</span> and check out by{" "}
+              <span className="font-medium">11:30 PM</span>. Fridays are off. Missing either locks your attendance
+              until an admin unlocks it.
+            </>
+          ) : (
+            <>
+              Tip: Use <span className="font-medium">Check In</span> then <span className="font-medium">Check Out</span>.
+              Use "Full Record" to create a manual entry with both times.
+            </>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {!isEmployee && (
@@ -522,9 +621,11 @@ export default function Attendance() {
               />
             </div>
           )}
-          <Button variant="outline" onClick={() => openAction("record")}>
-            <Edit3 className="mr-2 h-4 w-4" /> Full Record
-          </Button>
+          {!isEmployee && (
+            <Button variant="outline" onClick={() => openAction("record")}>
+              <Edit3 className="mr-2 h-4 w-4" /> Full Record
+            </Button>
+          )}
           <Button variant="outline" onClick={load}>
             Refresh
           </Button>
@@ -790,7 +891,9 @@ export default function Attendance() {
               Check In
             </DialogTitle>
             <DialogDescription>
-              Record the start of the work day. Time defaults to now.
+              {isEmployee
+                ? "Recorded against the current date and time — this cannot be changed."
+                : "Record the start of the work day. Time defaults to now."}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
@@ -812,16 +915,23 @@ export default function Attendance() {
                 />
               )}
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Date</Label>
-                <Input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+            {isEmployee ? (
+              <div className="flex items-center gap-2 p-2 border rounded-md bg-muted/50 text-sm">
+                <Clock className="h-4 w-4 text-muted-foreground" />
+                Checking in now — <span className="font-mono font-medium">{todayISO()} {nowHHMM()}</span>
               </div>
-              <div className="space-y-2">
-                <Label>Check In Time</Label>
-                <Input type="time" value={form.check_in} onChange={(e) => setForm({ ...form, check_in: e.target.value })} />
+            ) : (
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Date</Label>
+                  <Input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Check In Time</Label>
+                  <Input type="time" value={form.check_in} onChange={(e) => setForm({ ...form, check_in: e.target.value })} />
+                </div>
               </div>
-            </div>
+            )}
             <Separator />
             <div className="flex items-center justify-between rounded-lg border p-3 bg-slate-50">
               <div className="flex items-center gap-3">
@@ -867,7 +977,9 @@ export default function Attendance() {
               Check Out
             </DialogTitle>
             <DialogDescription>
-              Record end of the work day. Employee must have checked in first.
+              {isEmployee
+                ? "Recorded against the current date and time — this cannot be changed."
+                : "Record end of the work day. Employee must have checked in first."}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
@@ -889,16 +1001,23 @@ export default function Attendance() {
                 />
               )}
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Date</Label>
-                <Input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+            {isEmployee ? (
+              <div className="flex items-center gap-2 p-2 border rounded-md bg-muted/50 text-sm">
+                <Clock className="h-4 w-4 text-muted-foreground" />
+                Checking out now — <span className="font-mono font-medium">{todayISO()} {nowHHMM()}</span>
               </div>
-              <div className="space-y-2">
-                <Label>Check Out Time</Label>
-                <Input type="time" value={form.check_out} onChange={(e) => setForm({ ...form, check_out: e.target.value })} />
+            ) : (
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Date</Label>
+                  <Input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Check Out Time</Label>
+                  <Input type="time" value={form.check_out} onChange={(e) => setForm({ ...form, check_out: e.target.value })} />
+                </div>
               </div>
-            </div>
+            )}
             <div className="space-y-2">
               <Label>Notes (optional)</Label>
               <Input

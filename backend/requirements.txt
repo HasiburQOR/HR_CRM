@@ -11,5 +11,5 @@ pydantic-settings
 python-dotenv
 openpyxl
 Pillow
-APScheduler
+APScheduler>=3.10,<4
 psycopg2-binary

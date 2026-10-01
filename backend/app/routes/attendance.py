@@ -13,6 +13,7 @@ from app.schemas.attendance import AttendanceCreate, AttendanceUpdate
 from app.utils.dependencies import get_current_user, get_user_role_name, require_admin
 from app.utils.response import success_response, paginated_response
 from app.services.attendance import AttendanceService
+from app.services.attendance_lock import CHECK_IN_DEADLINE, CHECK_OUT_DEADLINE, evaluate_employee_lock
 from app.utils.timezone import get_bd_now
 from app.models.setting import Setting
 
@@ -87,6 +88,21 @@ def _is_employee_role(db: Session, current_user: Any) -> bool:
     return get_user_role_name(current_user, db) == "employee"
 
 
+def _check_and_apply_lock(db: Session, emp: Employee) -> None:
+    """Lock the employee's attendance access if they have already missed
+    today's deadline. The scheduler does this for everyone at the deadline
+    itself; this covers an employee acting in between runs."""
+    evaluate_employee_lock(db, emp)
+
+
+def _ensure_not_locked(emp: Employee) -> None:
+    if emp.crm_locked:
+        raise HTTPException(
+            status_code=403,
+            detail=emp.crm_lock_reason or "Attendance access is locked. Contact an administrator to unlock it.",
+        )
+
+
 # ---------------------------------------------------------------------------
 # Check-in / Check-out actions — MUST be defined BEFORE /{attendance_id} routes
 # ---------------------------------------------------------------------------
@@ -118,14 +134,22 @@ def _ensure_employee(db: Session, employee_id: str) -> Employee:
 @router.post("/actions/check-in")
 def action_check_in(payload: _CheckIn, db: Session = Depends(get_db), current_user: Any = Depends(get_current_user)):
     emp = _ensure_employee(db, payload.employee_id)
-    if _is_employee_role(db, current_user):
+    is_employee = _is_employee_role(db, current_user)
+    if is_employee:
         my_emp = _get_current_employee(db, current_user)
         if my_emp and my_emp.id != emp.id:
             raise HTTPException(status_code=403, detail="Cannot check in for another employee")
-    today = dt_date.today()
-    if payload.date:
-        today = dt_date.fromisoformat(payload.date[:10])
-    ci = _parse_hhmm(payload.check_in) or get_bd_now().time().replace(microsecond=0)
+        _check_and_apply_lock(db, emp)
+        _ensure_not_locked(emp)
+        # Employees can no longer back/future-date or hand-pick a time —
+        # check-in is always recorded against the current server date/time.
+        today = get_bd_now().date()
+        ci = get_bd_now().time().replace(microsecond=0)
+    else:
+        today = dt_date.today()
+        if payload.date:
+            today = dt_date.fromisoformat(payload.date[:10])
+        ci = _parse_hhmm(payload.check_in) or get_bd_now().time().replace(microsecond=0)
 
     att = db.query(Attendance).filter(Attendance.employee_id == emp.id, Attendance.date == today).first()
 
@@ -162,14 +186,22 @@ def action_check_in(payload: _CheckIn, db: Session = Depends(get_db), current_us
 @router.post("/actions/check-out")
 def action_check_out(payload: _CheckOut, db: Session = Depends(get_db), current_user: Any = Depends(get_current_user)):
     emp = _ensure_employee(db, payload.employee_id)
-    if _is_employee_role(db, current_user):
+    is_employee = _is_employee_role(db, current_user)
+    if is_employee:
         my_emp = _get_current_employee(db, current_user)
         if my_emp and my_emp.id != emp.id:
             raise HTTPException(status_code=403, detail="Cannot check out for another employee")
-    today = dt_date.today()
-    if payload.date:
-        today = dt_date.fromisoformat(payload.date[:10])
-    co = _parse_hhmm(payload.check_out) or get_bd_now().time().replace(microsecond=0)
+        _check_and_apply_lock(db, emp)
+        _ensure_not_locked(emp)
+        # Employees can no longer back/future-date or hand-pick a time —
+        # check-out is always recorded against the current server date/time.
+        today = get_bd_now().date()
+        co = get_bd_now().time().replace(microsecond=0)
+    else:
+        today = dt_date.today()
+        if payload.date:
+            today = dt_date.fromisoformat(payload.date[:10])
+        co = _parse_hhmm(payload.check_out) or get_bd_now().time().replace(microsecond=0)
 
     att = db.query(Attendance).filter(Attendance.employee_id == emp.id, Attendance.date == today).order_by(Attendance.created_at.desc()).first()
 
@@ -187,6 +219,49 @@ def action_check_out(payload: _CheckOut, db: Session = Depends(get_db), current_
     db.commit()
     db.refresh(att)
     return success_response(data=_att_to_dict(att, emp))
+
+
+# ---------------------------------------------------------------------------
+# Attendance CRM lock status / admin unlock
+# NOTE: static paths MUST be defined BEFORE /{attendance_id} routes
+# ---------------------------------------------------------------------------
+
+@router.get("/lock-status")
+def get_lock_status(db: Session = Depends(get_db), current_user: Any = Depends(get_current_user)):
+    if _is_employee_role(db, current_user):
+        emp = _get_current_employee(db, current_user)
+        if not emp:
+            return success_response(data={"locked": False, "reason": None})
+        _check_and_apply_lock(db, emp)
+        return success_response(data={"locked": bool(emp.crm_locked), "reason": emp.crm_lock_reason})
+    return success_response(data={"locked": False, "reason": None})
+
+
+@router.get("/locked-employees")
+def list_locked_employees(db: Session = Depends(get_db), current_user: Any = Depends(require_admin)):
+    employees = db.query(Employee).filter(Employee.crm_locked.is_(True), Employee.deleted_at.is_(None)).all()
+    data = [
+        {
+            "id": e.id,
+            "employee_id": e.employee_id,
+            "name": f"{e.first_name} {e.last_name}",
+            "reason": e.crm_lock_reason,
+            "locked_at": e.crm_locked_at.isoformat() if e.crm_locked_at else None,
+        }
+        for e in employees
+    ]
+    return success_response(data=data)
+
+
+@router.post("/unlock/{employee_id}")
+def unlock_employee_attendance(employee_id: str, db: Session = Depends(get_db), current_user: Any = Depends(require_admin)):
+    emp = _ensure_employee(db, employee_id)
+    emp.crm_locked = False
+    emp.crm_lock_reason = None
+    emp.crm_locked_at = None
+    emp.crm_unlocked_date = get_bd_now().date()
+    db.commit()
+    return success_response(data={"id": emp.id, "locked": False})
 
 
 # ---------------------------------------------------------------------------
@@ -301,9 +376,10 @@ def create_attendance(data: AttendanceCreate, db: Session = Depends(get_db), cur
         raise HTTPException(status_code=400, detail="Employee and date are required")
 
     if _is_employee_role(db, current_user):
-        emp = _get_current_employee(db, current_user)
-        if emp and str(emp.id) != str(employee_id):
-            raise HTTPException(status_code=403, detail="Cannot record attendance for another employee")
+        raise HTTPException(
+            status_code=403,
+            detail="Employees cannot create manual attendance records. Use Check In / Check Out instead.",
+        )
 
     existing = db.query(Attendance).filter(
         Attendance.employee_id == employee_id,

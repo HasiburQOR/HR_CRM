@@ -4,13 +4,21 @@ import type { User, AuthState, ApiResponse } from "@/types"
 
 const AuthContext = createContext<AuthState | undefined>(undefined)
 
+/** Roles are stored with their display casing ("Employee", "HR"), but every
+ * permission check in the UI compares against lowercase. Normalise once here
+ * so a role named "Employee" is not treated as an admin. */
+function normalizeUser(user: User | null): User | null {
+  if (!user || typeof user.role !== "string") return user
+  return { ...user, role: user.role.toLowerCase() }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(() => localStorage.getItem("token"))
   const [user, setUser] = useState<User | null>(() => {
     const stored = localStorage.getItem("user")
     if (stored) {
       try {
-        return JSON.parse(stored) as User
+        return normalizeUser(JSON.parse(stored) as User)
       } catch {
         return null
       }
@@ -54,10 +62,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } else {
         throw new Error("Invalid response from server")
       }
+      const normalized = normalizeUser(data.user)
       setToken(data.token)
-      setUser(data.user)
+      setUser(normalized)
       localStorage.setItem("token", data.token)
-      localStorage.setItem("user", JSON.stringify(data.user))
+      localStorage.setItem("user", JSON.stringify(normalized))
     } catch (err: any) {
       const message = err?.response?.data?.message || err?.message || "Login failed"
       throw new Error(message)

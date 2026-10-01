@@ -1,3 +1,4 @@
+import logging
 import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,6 +9,7 @@ from app.database import engine, Base
 from app.routes import auth, user, employee, attendance, salary, leave, task, reminder, backup, role, activity_log, setting, dashboard, reports, expense, inventory, requisition
 from app.middleware.auth_middleware import AuthContextMiddleware
 from app.middleware.audit_middleware import AuditMiddleware
+from app.services.attendance_scheduler import run_lock_sweep, shutdown_scheduler, start_scheduler
 
 app = FastAPI(title="HR CRM API", version="1.0.0")
 
@@ -294,6 +296,9 @@ def _run_postgres_migrations() -> None:
 
 @app.on_event("startup")
 def on_startup():
+    # Uvicorn only configures its own loggers, so without this the scheduler's
+    # messages (including failures) would never reach the container logs.
+    logging.basicConfig(level=logging.INFO)
     Base.metadata.create_all(bind=engine)
     _run_sqlite_migrations()
     _run_postgres_migrations()
@@ -302,6 +307,20 @@ def on_startup():
     uploads_root = "/app/uploads"
     os.makedirs(uploads_root, exist_ok=True)
     app.mount("/uploads", StaticFiles(directory=uploads_root), name="uploads")
+
+    # Lock employees who miss the attendance deadlines. Catch up first, since a
+    # restart may have skipped today's deadline, then schedule future runs.
+    # Never let a scheduler problem stop the API from serving.
+    try:
+        run_lock_sweep()
+        start_scheduler()
+    except Exception:
+        logging.getLogger(__name__).exception("Could not start attendance lock scheduler")
+
+
+@app.on_event("shutdown")
+def on_shutdown():
+    shutdown_scheduler()
 
 
 @app.get("/health")

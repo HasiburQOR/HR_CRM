@@ -50,6 +50,21 @@ try:
             if "rejected_by" not in acols:
                 conn.execute(text("ALTER TABLE attendances ADD COLUMN rejected_by VARCHAR(36)"))
                 print("Added column: attendances.rejected_by")
+    if "employees" in inspector.get_table_names():
+        ecols = [c["name"] for c in inspector.get_columns("employees")]
+        with engine.begin() as conn:
+            if "crm_locked" not in ecols:
+                conn.execute(text("ALTER TABLE employees ADD COLUMN crm_locked BOOLEAN DEFAULT FALSE"))
+                print("Added column: employees.crm_locked")
+            if "crm_lock_reason" not in ecols:
+                conn.execute(text("ALTER TABLE employees ADD COLUMN crm_lock_reason TEXT"))
+                print("Added column: employees.crm_lock_reason")
+            if "crm_locked_at" not in ecols:
+                conn.execute(text("ALTER TABLE employees ADD COLUMN crm_locked_at TIMESTAMP"))
+                print("Added column: employees.crm_locked_at")
+            if "crm_unlocked_date" not in ecols:
+                conn.execute(text("ALTER TABLE employees ADD COLUMN crm_unlocked_date DATE"))
+                print("Added column: employees.crm_unlocked_date")
 finally:
     db.close()
 

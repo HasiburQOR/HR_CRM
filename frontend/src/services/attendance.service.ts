@@ -95,4 +95,19 @@ export const attendanceService = {
     const res = await api.post<ApiResponse<Attendance>>("/attendances/actions/check-out", data)
     return res.data.data
   },
+
+  async getLockStatus(): Promise<{ locked: boolean; reason: string | null }> {
+    const res = await api.get<ApiResponse<{ locked: boolean; reason: string | null }>>("/attendances/lock-status")
+    return res.data.data
+  },
+
+  async getLockedEmployees(): Promise<Array<{ id: string; employee_id: string; name: string; reason: string | null; locked_at: string | null }>> {
+    const res = await api.get<ApiResponse<Array<{ id: string; employee_id: string; name: string; reason: string | null; locked_at: string | null }>>>("/attendances/locked-employees")
+    return res.data.data
+  },
+
+  async unlockEmployee(employeeId: string): Promise<{ id: string; locked: boolean }> {
+    const res = await api.post<ApiResponse<{ id: string; locked: boolean }>>(`/attendances/unlock/${employeeId}`)
+    return res.data.data
+  },
 }

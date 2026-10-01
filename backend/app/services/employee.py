@@ -51,6 +51,8 @@ def _employee_to_dict(e) -> dict:
         "address": getattr(e, "address", None),
         "salary": e.salary,
         "status": e.status,
+        "crm_locked": bool(getattr(e, "crm_locked", False)),
+        "crm_lock_reason": getattr(e, "crm_lock_reason", None),
         "created_at": e.created_at.isoformat() if getattr(e, "created_at", None) else None,
         "updated_at": e.updated_at.isoformat() if getattr(e, "updated_at", None) else None,
         "deleted_at": e.deleted_at.isoformat() if getattr(e, "deleted_at", None) else None,
