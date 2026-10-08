@@ -435,7 +435,9 @@ def report_inventory(
         in_stock = int(it.quantity or 0)
         cost = float(getattr(it, "unit_cost", 0) or 0)
         assigned_to = "; ".join(
-            f"{(f'{e.first_name} {e.last_name}'.strip() if e else 'Unknown')} ({int(a.quantity or 1)})"
+            (f"{a.department} (Department)" if a.department and not a.employee_id
+             else (f"{e.first_name} {e.last_name}".strip() if e else "Unknown"))
+            + f" ({int(a.quantity or 1)})"
             for a, e in acts
         )
         data.append({
@@ -475,14 +477,16 @@ def report_inventory(
         it = item_by_id.get(a.item_id)
         if it is None:
             continue
+        to_department = bool(a.department) and not a.employee_id
         assignments.append({
             "Item Code": it.item_code,
             "Item Name": it.name,
             "Category": it.category or "",
             "Type": it.item_type or "",
+            "Assigned To": "Department" if to_department else "Employee",
             "Employee ID": e.employee_id if e else "",
             "Employee": f"{e.first_name} {e.last_name}" if e else "",
-            "Department": e.department if e else "",
+            "Department": a.department if to_department else (e.department if e else ""),
             "Qty": int(a.quantity or 1),
             "Condition at Handover": a.condition or "",
             "Assigned On": str(a.assigned_at) if getattr(a, "assigned_at", None) else "",

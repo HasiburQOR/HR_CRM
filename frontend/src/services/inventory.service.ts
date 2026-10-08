@@ -28,6 +28,7 @@ export interface InventoryListParams {
   item_type?: string
   status?: string
   employee_id?: string
+  department?: string
   assigned?: boolean
   low_stock?: boolean
 }
@@ -61,6 +62,11 @@ export const inventoryService = {
     return res.data.data
   },
 
+  async getDepartments(): Promise<string[]> {
+    const res = await api.get<ApiResponse<string[]>>("/inventory/departments")
+    return res.data.data
+  },
+
   async getNextCode(category: string, item_type: string): Promise<string> {
     const res = await api.get<ApiResponse<string>>("/inventory/next-code", { params: { category, item_type } })
     return res.data.data
@@ -87,7 +93,14 @@ export const inventoryService = {
 
   async assign(
     id: string,
-    data: { employee_id: string; quantity?: number; condition?: string; assignment_notes?: string }
+    data: {
+      // exactly one of employee_id / department
+      employee_id?: string
+      department?: string
+      quantity?: number
+      condition?: string
+      assignment_notes?: string
+    }
   ): Promise<InventoryItem> {
     const res = await api.post<ApiResponse<InventoryItem>>(`/inventory/${id}/assign`, data)
     return res.data.data

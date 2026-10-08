@@ -22,10 +22,19 @@ from app.models.employee import Employee
 router = APIRouter(prefix="/inventory", tags=["inventory"])
 
 
+def _assignee_label(a: InventoryAssignment, emp: Employee | None) -> str:
+    """Who holds an assignment: the employee's name, or '<name> (Department)'."""
+    if not a.employee_id and a.department:
+        return f"{a.department} (Department)"
+    return f"{emp.first_name} {emp.last_name}".strip() if emp else "Unknown"
+
+
 def _assignment_dict(a: InventoryAssignment, emp: Employee | None) -> dict:
     return {
         "id": a.id,
         "item_id": a.item_id,
+        "assignee_type": "employee" if a.employee_id else "department",
+        "department": a.department,
         "employee_id": a.employee_id,
         "employee_name": f"{emp.first_name} {emp.last_name}" if emp else None,
         "employee_empid": emp.employee_id if emp else None,
@@ -41,7 +50,7 @@ def _assignment_dict(a: InventoryAssignment, emp: Employee | None) -> dict:
 
 
 def _load_assignments_map(db: Session, item_ids: list[str], active_only: bool = True) -> dict[str, list[dict]]:
-    """Active assignments per item id, with employee info joined in."""
+    """Active assignments (to employees and departments) per item id, with employee info joined in."""
     if not item_ids:
         return {}
     query = db.query(InventoryAssignment).filter(
@@ -51,7 +60,7 @@ def _load_assignments_map(db: Session, item_ids: list[str], active_only: bool = 
     if active_only:
         query = query.filter(InventoryAssignment.status == "active")
     rows = query.order_by(InventoryAssignment.created_at.desc()).all()
-    emp_ids = list({a.employee_id for a in rows})
+    emp_ids = list({a.employee_id for a in rows if a.employee_id})
     emps = {e.id: e for e in db.query(Employee).filter(Employee.id.in_(emp_ids)).all()} if emp_ids else {}
     result: dict[str, list[dict]] = {}
     for a in rows:
@@ -105,6 +114,7 @@ def list_inventory(
     item_type: str | None = Query(None),
     status: str | None = Query(None),
     employee_id: str | None = Query(None),
+    department: str | None = Query(None),
     assigned: bool | None = Query(None),
     low_stock: bool = Query(False),
     db: Session = Depends(get_db),
@@ -115,7 +125,7 @@ def list_inventory(
     records, total = service.get_filtered(
         skip=skip, limit=per_page,
         search=search, category=category, item_type=item_type,
-        status=status, employee_id=employee_id,
+        status=status, employee_id=employee_id, department=department,
         assigned=assigned, low_stock=low_stock,
     )
     result = []
@@ -144,6 +154,16 @@ def inventory_categories(
     return success_response(data=service.get_categories())
 
 
+@router.get("/departments")
+def inventory_departments(
+    db: Session = Depends(get_db),
+    current_user: Any = Depends(require_admin),
+):
+    """Departments an item can be assigned to."""
+    service = InventoryService(db)
+    return success_response(data=service.get_departments())
+
+
 @router.get("/export")
 def export_inventory(
     search: str | None = Query(None),
@@ -151,6 +171,7 @@ def export_inventory(
     item_type: str | None = Query(None),
     status: str | None = Query(None),
     employee_id: str | None = Query(None),
+    department: str | None = Query(None),
     assigned: bool | None = Query(None),
     low_stock: bool = Query(False),
     db: Session = Depends(get_db),
@@ -162,8 +183,10 @@ def export_inventory(
         search=search, category=category, item_type=item_type,
         status=status,
         employee_id=None,  # employee filtering is applied below via active assignments
+        department=department,
         assigned=assigned, low_stock=low_stock,
     )
+    filter_dept = department.strip().lower() if (department and department != "all") else None
     # Active assignments + full history for the fetched records
     item_ids = [it.id for it in records]
     history = []
@@ -196,7 +219,7 @@ def export_inventory(
         in_stock = int(it.quantity or 0)
         cost = float(getattr(it, "unit_cost", 0) or 0)
         assigned_to = "; ".join(
-            f"{(f'{e.first_name} {e.last_name}'.strip() if e else 'Unknown')} ({int(a.quantity or 1)})"
+            f"{_assignee_label(a, e)} ({int(a.quantity or 1)})"
             for a, e in acts
         )
         rows.append({
@@ -233,17 +256,21 @@ def export_inventory(
     for a, e in history:
         if filter_emp and a.employee_id != filter_emp:
             continue
+        if filter_dept and (a.department or "").strip().lower() != filter_dept:
+            continue
         it = item_by_id.get(a.item_id)
         if it is None:
             continue
+        to_department = bool(a.department) and not a.employee_id
         assignment_rows.append({
             "Item Code": it.item_code,
             "Item Name": it.name,
             "Category": it.category or "",
             "Type": it.item_type or "",
+            "Assigned To": "Department" if to_department else "Employee",
             "Employee ID": e.employee_id if e else "",
             "Employee": f"{e.first_name} {e.last_name}" if e else "",
-            "Department": e.department if e else "",
+            "Department": a.department if to_department else (e.department if e else ""),
             "Qty": int(a.quantity or 1),
             "Condition at Handover": a.condition or "",
             "Assigned On": str(a.assigned_at) if getattr(a, "assigned_at", None) else "",
@@ -570,6 +597,7 @@ def assign_inventory(
     it = service.assign(
         item_id,
         payload.employee_id,
+        department=payload.department,
         quantity=payload.quantity,
         condition=payload.condition,
         assigned_at=payload.assigned_at,
@@ -596,7 +624,7 @@ def list_item_assignments(
             .order_by(InventoryAssignment.created_at.desc())
             .all()
     )
-    emp_ids = list({a.employee_id for a in rows})
+    emp_ids = list({a.employee_id for a in rows if a.employee_id})
     emps = {e.id: e for e in db.query(Employee).filter(Employee.id.in_(emp_ids)).all()} if emp_ids else {}
     return success_response(data=[_assignment_dict(a, emps.get(a.employee_id)) for a in rows])
 

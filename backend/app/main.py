@@ -10,6 +10,7 @@ from app.routes import auth, user, employee, attendance, salary, leave, task, re
 from app.middleware.auth_middleware import AuthContextMiddleware
 from app.middleware.audit_middleware import AuditMiddleware
 from app.services.attendance_scheduler import run_lock_sweep, shutdown_scheduler, start_scheduler
+from app.utils.schema_migrations import migrate_inventory_department_assignments
 
 app = FastAPI(title="HR CRM API", version="1.0.0")
 
@@ -302,6 +303,11 @@ def on_startup():
     Base.metadata.create_all(bind=engine)
     _run_sqlite_migrations()
     _run_postgres_migrations()
+    # Normally already applied by seed.py; repeated here for servers started without it.
+    try:
+        migrate_inventory_department_assignments(engine)
+    except Exception:
+        logging.getLogger(__name__).exception("Inventory department migration failed")
 
     # Serve uploaded files at /uploads/
     uploads_root = "/app/uploads"

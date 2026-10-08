@@ -292,7 +292,9 @@ export interface InventoryItem {
 export interface InventoryAssignment {
   id: string
   item_id: string
-  employee_id: string
+  assignee_type?: "employee" | "department"
+  department?: string | null
+  employee_id?: string | null
   employee_name?: string | null
   employee_empid?: string | null
   quantity: number

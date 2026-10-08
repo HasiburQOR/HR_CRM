@@ -377,7 +377,7 @@ class InventoryService:
         self.db.add(item)
         return item, True
 
-    # ----- stock in/out (assignments to employees) -----
+    # ----- stock in/out (assignments to employees / departments) -----
 
     _AUTO_STATUSES = {"in_stock", "assigned", "low_stock", "out_of_stock"}
 
@@ -392,19 +392,31 @@ class InventoryService:
             return "low_stock"
         return "in_stock"
 
-    def assign(self, item_id: str, employee_id: str, quantity: int = 1, condition: str | None = None,
-               assigned_at=None, notes: str | None = None) -> InventoryItem:
-        """Hand out `quantity` units to an employee — stock is decremented."""
+    def assign(self, item_id: str, employee_id: str | None = None, quantity: int = 1,
+               condition: str | None = None, assigned_at=None, notes: str | None = None,
+               department: str | None = None) -> InventoryItem:
+        """Hand out `quantity` units to an employee or a department — stock is decremented."""
         record = self.get_by_id(item_id)
-        if not employee_id:
-            raise HTTPException(status_code=400, detail="Employee is required")
-        emp = (
-            self.db.query(Employee)
-                .filter(Employee.id == employee_id, Employee.deleted_at.is_(None))
-                .first()
-        )
-        if not emp:
-            raise HTTPException(status_code=404, detail="Employee not found")
+        employee_id = employee_id or None
+        department = re.sub(r"\s+", " ", department or "").strip() or None
+        if employee_id and department:
+            raise HTTPException(status_code=400, detail="Assign to either an employee or a department, not both")
+        if not employee_id and not department:
+            raise HTTPException(status_code=400, detail="An employee or a department is required")
+        if employee_id:
+            emp = (
+                self.db.query(Employee)
+                    .filter(Employee.id == employee_id, Employee.deleted_at.is_(None))
+                    .first()
+            )
+            if not emp:
+                raise HTTPException(status_code=404, detail="Employee not found")
+        else:
+            if len(department) > 100:
+                raise HTTPException(status_code=400, detail="Department name is too long (max 100 characters)")
+            # Reuse the existing spelling so "sales" and "Sales" stay one department.
+            department = next(
+                (d for d in self.get_departments() if d.lower() == department.lower()), department)
         try:
             quantity = int(quantity or 1)
         except (TypeError, ValueError):
@@ -420,6 +432,7 @@ class InventoryService:
         self.repo.create_assignment({
             "item_id": item_id,
             "employee_id": employee_id,
+            "department": department,
             "quantity": quantity,
             "condition": condition,
             "assigned_at": assigned_at or date.today(),
@@ -428,7 +441,8 @@ class InventoryService:
         })
 
         record.quantity = (record.quantity or 0) - quantity
-        record.employee_id = employee_id
+        if employee_id:
+            record.employee_id = employee_id
         if not record.assigned_at:
             record.assigned_at = assigned_at or date.today()
         if notes:
@@ -458,9 +472,10 @@ class InventoryService:
         item.quantity = (item.quantity or 0) + (assignment.quantity or 1)
         remaining = self.repo.get_active_assignments(item.id)
         if remaining:
-            last = remaining[0]  # most recent still-active assignment
-            item.employee_id = last.employee_id
-            item.assigned_at = last.assigned_at
+            # most recent still-active assignment; department hand-outs have no employee
+            last_emp = next((a for a in remaining if a.employee_id), None)
+            item.employee_id = last_emp.employee_id if last_emp else None
+            item.assigned_at = (last_emp or remaining[0]).assigned_at
         else:
             item.employee_id = None
             item.assigned_at = None
@@ -484,6 +499,15 @@ class InventoryService:
 
     def get_categories(self) -> list[str]:
         return self.repo.get_categories()
+
+    DEFAULT_DEPARTMENTS = ["Sales", "Marketing", "Contracting", "Reporting", "Admin"]
+
+    def get_departments(self) -> list[str]:
+        """Departments an item can be handed to: the standard ones plus any in use."""
+        seen: dict[str, str] = {}
+        for name in self.DEFAULT_DEPARTMENTS + sorted(self.repo.get_departments(), key=str.lower):
+            seen.setdefault(name.lower(), name)
+        return list(seen.values())
 
     def get_next_item_code(self, category: str, item_type: str) -> str:
         category = (category or "").strip()

@@ -63,7 +63,9 @@ class InventoryUpdate(BaseModel):
 class InventoryAssign(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
 
-    employee_id: str
+    # Exactly one of employee_id / department must be given.
+    employee_id: Optional[str] = None
+    department: Optional[str] = None
     quantity: int = 1
     condition: Optional[str] = None
     assigned_at: Optional[date] = None

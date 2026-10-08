@@ -40,15 +40,16 @@ class InventoryItem(BaseModel):
 
 
 class InventoryAssignment(BaseModel):
-    """A hand-out of stock units to an employee.
+    """A hand-out of stock units to an employee or to a whole department.
 
-    Creating one decrements the item's stock (quantity); returning it
-    puts the units back into stock.
+    Exactly one of employee_id / department is set.  Creating one decrements
+    the item's stock (quantity); returning it puts the units back into stock.
     """
     __tablename__ = "inventory_assignments"
 
     item_id = Column(String(36), ForeignKey("inventory_items.id"), nullable=False, index=True)
-    employee_id = Column(String(36), ForeignKey("employees.id"), nullable=False, index=True)
+    employee_id = Column(String(36), ForeignKey("employees.id"), nullable=True, index=True)
+    department = Column(String(100), nullable=True)  # set when handed to a department
     quantity = Column(Integer, nullable=False, default=1)
     condition = Column(String(30), nullable=True)  # condition at handover
     assigned_at = Column(Date, nullable=True)

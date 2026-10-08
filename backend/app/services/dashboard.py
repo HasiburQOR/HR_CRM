@@ -1,4 +1,4 @@
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 from datetime import date, timedelta
 
@@ -10,7 +10,7 @@ from app.models.task import Task
 from app.models.activity_log import ActivityLog
 from app.models.expense import Expense
 from app.models.salary import Salary
-from app.models.inventory import InventoryItem
+from app.models.inventory import InventoryItem, InventoryAssignment
 from app.utils.dependencies import get_user_role_name
 
 
@@ -136,9 +136,17 @@ class DashboardService:
             inventory_total_items = self.db.query(InventoryItem).filter(
                 InventoryItem.deleted_at.is_(None),
             ).count()
+            # Held by an employee or by a department
             inventory_assigned = self.db.query(InventoryItem).filter(
                 InventoryItem.deleted_at.is_(None),
-                InventoryItem.employee_id.isnot(None),
+                or_(
+                    InventoryItem.employee_id.isnot(None),
+                    self.db.query(InventoryAssignment).filter(
+                        InventoryAssignment.item_id == InventoryItem.id,
+                        InventoryAssignment.status == "active",
+                        InventoryAssignment.deleted_at.is_(None),
+                    ).exists(),
+                ),
             ).count()
             inventory_low_stock = self.db.query(InventoryItem).filter(
                 InventoryItem.deleted_at.is_(None),

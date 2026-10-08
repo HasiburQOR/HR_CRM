@@ -13,6 +13,7 @@ import {
   FileSpreadsheet,
   Upload,
   Loader2,
+  Building2,
 } from "lucide-react"
 import { inventoryService, type InventoryListParams } from "@/services/inventory.service"
 import type { InventoryItem, InventoryAssignment } from "@/types"
@@ -84,6 +85,8 @@ const DEFAULT_CATEGORIES = [
   "Other",
 ]
 
+const DEFAULT_DEPARTMENTS = ["Sales", "Marketing", "Contracting", "Reporting", "Admin"]
+
 export default function Inventory() {
   const [rows, setRows] = useState<InventoryItem[]>([])
   const [stats, setStats] = useState<any>(null)
@@ -95,13 +98,20 @@ export default function Inventory() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [assignTarget, setAssignTarget] = useState<InventoryItem | null>(null)
   const [form, setForm] = useState<Partial<InventoryItem>>({})
+  const [departments, setDepartments] = useState<string[]>(DEFAULT_DEPARTMENTS)
   const [assignForm, setAssignForm] = useState<{
+    assign_to: "employee" | "department"
     employee_id: string
+    department: string
+    custom_department: string
     quantity: number
     condition: string
     assignment_notes: string
   }>({
+    assign_to: "employee",
     employee_id: "",
+    department: "",
+    custom_department: "",
     quantity: 1,
     condition: "",
     assignment_notes: "",
@@ -117,6 +127,7 @@ export default function Inventory() {
     category: "",
     item_type: "",
     status: "",
+    department: "",
     assigned: undefined,
     low_stock: false,
   })
@@ -135,7 +146,16 @@ export default function Inventory() {
   }, [filters])
 
   async function loadAll() {
-    await Promise.all([load(), loadStats(), loadCategories()])
+    await Promise.all([load(), loadStats(), loadCategories(), loadDepartments()])
+  }
+
+  async function loadDepartments() {
+    try {
+      const list = await inventoryService.getDepartments()
+      setDepartments(list && list.length ? list : DEFAULT_DEPARTMENTS)
+    } catch (e) {
+      setDepartments(DEFAULT_DEPARTMENTS)
+    }
   }
 
   async function load() {
@@ -262,7 +282,10 @@ export default function Inventory() {
   function openAssign(it: InventoryItem) {
     setAssignTarget(it)
     setAssignForm({
+      assign_to: "employee",
       employee_id: "",
+      department: "",
+      custom_department: "",
       quantity: 1,
       condition: it.condition || "",
       assignment_notes: "",
@@ -273,7 +296,15 @@ export default function Inventory() {
   async function submitAssign() {
     try {
       if (!assignTarget) return
-      if (!assignForm.employee_id) {
+      const toDepartment = assignForm.assign_to === "department"
+      const department = (
+        assignForm.department === "custom" ? assignForm.custom_department : assignForm.department
+      ).trim()
+      if (toDepartment && !department) {
+        toast({ title: "Select a department", variant: "destructive" })
+        return
+      }
+      if (!toDepartment && !assignForm.employee_id) {
         toast({ title: "Select an employee", variant: "destructive" })
         return
       }
@@ -287,12 +318,18 @@ export default function Inventory() {
         return
       }
       await inventoryService.assign(assignTarget.id, {
-        employee_id: assignForm.employee_id,
+        ...(toDepartment ? { department } : { employee_id: assignForm.employee_id }),
         quantity: qty,
         condition: assignForm.condition || undefined,
         assignment_notes: assignForm.assignment_notes || undefined,
       })
-      toast({ title: "Assigned", description: `${qty} unit(s) handed over — stock updated.`, variant: "success" })
+      toast({
+        title: "Assigned",
+        description: toDepartment
+          ? `${qty} unit(s) handed over to ${department} — stock updated.`
+          : `${qty} unit(s) handed over — stock updated.`,
+        variant: "success",
+      })
       setAssignOpen(false)
       loadAll()
     } catch (e: any) {
@@ -424,7 +461,7 @@ export default function Inventory() {
         <div>
           <h2 className="text-2xl font-bold tracking-tight">Inventory</h2>
           <p className="text-muted-foreground">
-            Track office equipment assigned to employees and general office supplies.
+            Track office equipment assigned to employees or departments and general office supplies.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -691,7 +728,7 @@ export default function Inventory() {
           <Dialog open={assignOpen} onOpenChange={setAssignOpen}>
             <DialogContent className="max-w-lg">
               <DialogHeader>
-                <DialogTitle>Assign Item to Employee</DialogTitle>
+                <DialogTitle>Assign Item</DialogTitle>
                 {assignTarget && (
                   <div className="text-sm text-muted-foreground">
                     <span className="font-medium text-foreground">{assignTarget.name}</span>
@@ -701,13 +738,63 @@ export default function Inventory() {
               </DialogHeader>
               <div className="space-y-4 py-2">
                 <div className="space-y-2">
-                  <Label>Employee *</Label>
-                  <EmployeeSelect
-                    value={assignForm.employee_id}
-                    onValueChange={(id) => setAssignForm({ ...assignForm, employee_id: id })}
-                    placeholder="Search employee by ID or name..."
-                  />
+                  <Label>Assign To</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      type="button"
+                      variant={assignForm.assign_to === "employee" ? "default" : "outline"}
+                      onClick={() => setAssignForm({ ...assignForm, assign_to: "employee" })}
+                      className="gap-2"
+                    >
+                      <UserPlus className="h-4 w-4" /> Employee
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={assignForm.assign_to === "department" ? "default" : "outline"}
+                      onClick={() => setAssignForm({ ...assignForm, assign_to: "department" })}
+                      className="gap-2"
+                    >
+                      <Building2 className="h-4 w-4" /> Department
+                    </Button>
+                  </div>
                 </div>
+                {assignForm.assign_to === "employee" ? (
+                  <div className="space-y-2">
+                    <Label>Employee *</Label>
+                    <EmployeeSelect
+                      value={assignForm.employee_id}
+                      onValueChange={(id) => setAssignForm({ ...assignForm, employee_id: id })}
+                      placeholder="Search employee by ID or name..."
+                    />
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Label>Department *</Label>
+                    <Select
+                      value={assignForm.department || undefined}
+                      onValueChange={(v) => setAssignForm({ ...assignForm, department: v })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select department" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {departments.map((d) => (
+                          <SelectItem key={d} value={d}>{d}</SelectItem>
+                        ))}
+                        <SelectItem value="custom">+ Add another department...</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {assignForm.department === "custom" && (
+                      <Input
+                        className="mt-2"
+                        placeholder="Enter department name"
+                        maxLength={100}
+                        value={assignForm.custom_department}
+                        onChange={(e) => setAssignForm({ ...assignForm, custom_department: e.target.value })}
+                      />
+                    )}
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Quantity *</Label>
@@ -767,7 +854,9 @@ export default function Inventory() {
                 {returnTarget && (
                   <div className="text-sm text-muted-foreground">
                     <span className="font-medium text-foreground">
-                      {returnTarget.employee_name || "Employee"}
+                      {returnTarget.assignee_type === "department"
+                        ? `${returnTarget.department} department`
+                        : returnTarget.employee_name || "Employee"}
                     </span>
                     {" "}returns {returnTarget.quantity} unit(s) — the quantity will be added back to stock.
                   </div>
@@ -845,8 +934,8 @@ export default function Inventory() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0">
             <div>
-              <CardTitle className="text-sm">Assigned to Employees</CardTitle>
-              <CardDescription>In use</CardDescription>
+              <CardTitle className="text-sm">Assigned Units</CardTitle>
+              <CardDescription>With employees & departments</CardDescription>
             </div>
             <UserPlus className="h-5 w-5 text-indigo-600" />
           </CardHeader>
@@ -879,7 +968,7 @@ export default function Inventory() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-6">
+          <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-7">
             <div className="space-y-1 lg:col-span-2">
               <Label className="text-xs">Search</Label>
               <div className="relative">
@@ -944,6 +1033,23 @@ export default function Inventory() {
                   <SelectItem value="damaged">Damaged</SelectItem>
                   <SelectItem value="reserved">Reserved</SelectItem>
                   <SelectItem value="retired">Retired</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Assigned Department</Label>
+              <Select
+                value={filters.department || "all"}
+                onValueChange={(v) => setFilters({ ...filters, department: v === "all" ? "" : v })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Departments</SelectItem>
+                  {departments.map((d) => (
+                    <SelectItem key={d} value={d}>{d}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -1057,10 +1163,22 @@ export default function Inventory() {
                             {r.assignments!.map((a) => (
                               <div key={a.id} className="flex items-start justify-between gap-2">
                                 <div className="flex flex-col">
-                                  <span className="font-medium">{a.employee_name || "Assigned"}</span>
-                                  <span className="text-xs text-muted-foreground">
-                                    ID: {a.employee_empid || a.employee_id?.slice(0, 8)}
-                                  </span>
+                                  {a.assignee_type === "department" ? (
+                                    <>
+                                      <span className="font-medium flex items-center gap-1">
+                                        <Building2 className="h-3.5 w-3.5 text-indigo-600" />
+                                        {a.department}
+                                      </span>
+                                      <span className="text-xs text-muted-foreground">Department</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <span className="font-medium">{a.employee_name || "Assigned"}</span>
+                                      <span className="text-xs text-muted-foreground">
+                                        ID: {a.employee_empid || a.employee_id?.slice(0, 8)}
+                                      </span>
+                                    </>
+                                  )}
                                   <span className="text-[10px] text-muted-foreground">
                                     {a.quantity > 1 ? `${a.quantity} unit(s) · ` : ""}
                                     {a.condition ? `${a.condition} · ` : ""}
@@ -1100,7 +1218,7 @@ export default function Inventory() {
                             variant="ghost"
                             onClick={() => openAssign(r)}
                             disabled={(r.quantity || 0) <= 0}
-                            title="Assign to employee"
+                            title="Assign to employee or department"
                           >
                             <UserPlus className="h-4 w-4 text-indigo-600" />
                           </Button>

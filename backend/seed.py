@@ -65,6 +65,9 @@ try:
             if "crm_unlocked_date" not in ecols:
                 conn.execute(text("ALTER TABLE employees ADD COLUMN crm_unlocked_date DATE"))
                 print("Added column: employees.crm_unlocked_date")
+    # Inventory hand-outs to a department (adds department, makes employee_id optional)
+    from app.utils.schema_migrations import migrate_inventory_department_assignments
+    migrate_inventory_department_assignments(engine)
 finally:
     db.close()
 
