@@ -104,8 +104,17 @@ export interface Salary {
   [key: string]: any
 }
 
+export interface LeaveAttachment {
+  id: string
+  original_name: string
+  size: number
+  content_type: string
+  created_at?: string | null
+}
+
 export interface LeaveRequest {
   id: string
+  attachments?: LeaveAttachment[]
   employee_id: string
   employee_name?: string
   leave_type?: string

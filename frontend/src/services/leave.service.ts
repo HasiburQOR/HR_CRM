@@ -1,5 +1,5 @@
 import api from "@/lib/axios"
-import type { ApiResponse, LeaveRequest } from "@/types"
+import type { ApiResponse, LeaveAttachment, LeaveRequest } from "@/types"
 
 export interface LeaveListResponse {
   data: LeaveRequest[]
@@ -47,5 +47,22 @@ export const leaveService = {
   async reject(id: string): Promise<LeaveRequest> {
     const res = await api.post<ApiResponse<LeaveRequest>>(`/leaves/${id}/reject`)
     return res.data.data
+  },
+
+  async uploadAttachment(id: string, file: File): Promise<LeaveAttachment> {
+    const fd = new FormData()
+    fd.append("file", file)
+    const res = await api.post<ApiResponse<LeaveAttachment>>(`/leaves/${id}/attachments`, fd, { timeout: 120000 })
+    return res.data.data
+  },
+
+  // Documents need the auth header, so they are fetched as blobs rather than linked directly.
+  async getAttachmentBlob(id: string, attachmentId: string): Promise<Blob> {
+    const res = await api.get(`/leaves/${id}/attachments/${attachmentId}`, { responseType: "blob", timeout: 120000 })
+    return res.data as Blob
+  },
+
+  async deleteAttachment(id: string, attachmentId: string): Promise<void> {
+    await api.delete(`/leaves/${id}/attachments/${attachmentId}`)
   },
 }

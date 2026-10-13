@@ -3,7 +3,7 @@ from app.models.role import Role
 from app.models.employee import Employee
 from app.models.attendance import Attendance
 from app.models.salary import Salary
-from app.models.leave import LeaveRequest
+from app.models.leave import LeaveRequest, LeaveAttachment
 from app.models.task import Task
 from app.models.reminder import Reminder
 from app.models.backup import Backup
@@ -20,6 +20,7 @@ __all__ = [
     "Attendance",
     "Salary",
     "LeaveRequest",
+    "LeaveAttachment",
     "Task",
     "Reminder",
     "Backup",

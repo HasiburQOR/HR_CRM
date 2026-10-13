@@ -33,6 +33,7 @@ services:
       TZ: ${TZ:-Asia/Dhaka}
     volumes:
       - uploads:/app/uploads
+      - private-uploads:/app/private_uploads
       - backups:/app/backups
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
@@ -58,4 +59,5 @@ services:
 volumes:
   db-data:
   uploads:
+  private-uploads:
   backups:

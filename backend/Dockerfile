@@ -16,7 +16,7 @@ RUN pip install --no-cache-dir --upgrade pip \
 
 COPY . .
 
-RUN mkdir -p /app/backups /app/uploads
+RUN mkdir -p /app/backups /app/uploads /app/private_uploads
 
 EXPOSE 8000
 
