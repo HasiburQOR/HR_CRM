@@ -280,7 +280,7 @@ export default function Attendance() {
       toast({
         title: enabled ? "Employee editing enabled" : "Employee editing disabled",
         description: enabled
-          ? "Employees can now correct their own past check-in / check-out times. Edits reset to pending for your review."
+          ? "Employees can now correct their own attendance dates and times, and add missed days. Edits reset to pending for your review."
           : "Employees can no longer edit their attendance records.",
       })
     } catch (e: any) {
@@ -292,9 +292,12 @@ export default function Attendance() {
 
   function openAction(mode: ActionMode) {
     setEditingId(null)
+    // Employees use "record" to back-fill a missed day, so default to yesterday
+    const yesterday = new Date()
+    yesterday.setDate(yesterday.getDate() - 1)
     setForm((f) => ({
       ...f,
-      date: todayISO(),
+      date: isEmployee && mode === "record" ? toISODate(yesterday) : todayISO(),
       check_in: nowHHMM(),
       check_out: nowHHMM(),
       employee_id: isEmployee && user?.employee_id ? user.employee_id || "" : "",
@@ -577,9 +580,9 @@ export default function Attendance() {
         <div className="flex items-start gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
           <Info className="h-4 w-4 mt-0.5 shrink-0" />
           <div>
-            <span className="font-medium">Attendance editing is currently open.</span> You can correct your past
-            check-in / check-out times using the edit button on each record. Edited records are sent back to pending
-            for admin review.
+            <span className="font-medium">Attendance editing is currently open.</span> You can correct the date or
+            check-in / check-out times using the edit button on each record, or use "Add Missed Day" for a day you
+            forgot to record. Only one record per day is allowed. Changes are sent back to pending for admin review.
           </div>
         </div>
       )}
@@ -610,20 +613,25 @@ export default function Attendance() {
               <div className="leading-tight">
                 <div className="text-xs font-medium">Employee Self-Editing</div>
                 <div className="text-[10px] text-muted-foreground">
-                  {editWindowOpen ? "Open — employees can fix past times" : "Closed"}
+                  {editWindowOpen ? "Open — employees can fix past dates & times" : "Closed"}
                 </div>
               </div>
               <Switch
                 checked={editWindowOpen}
                 onCheckedChange={toggleEditWindow}
                 disabled={togglingWindow}
-                title="Allow employees to edit their own check-in / check-out times"
+                title="Allow employees to edit their own attendance dates and times, and add missed days"
               />
             </div>
           )}
           {!isEmployee && (
             <Button variant="outline" onClick={() => openAction("record")}>
               <Edit3 className="mr-2 h-4 w-4" /> Full Record
+            </Button>
+          )}
+          {isEmployee && editWindowOpen && (
+            <Button variant="outline" onClick={() => openAction("record")}>
+              <Plus className="mr-2 h-4 w-4" /> Add Missed Day
             </Button>
           )}
           <Button variant="outline" onClick={load}>
@@ -865,7 +873,7 @@ export default function Attendance() {
                             <Button size="sm" variant="ghost" onClick={() => openView(r)} title="View Details">
                               <Eye className="h-4 w-4 text-blue-600" />
                             </Button>
-                            <Button size="sm" variant="ghost" onClick={() => openEdit(r)} title="Edit check-in / check-out times">
+                            <Button size="sm" variant="ghost" onClick={() => openEdit(r)} title="Edit date / check-in / check-out times">
                               <Pencil className="h-4 w-4 text-emerald-600" />
                             </Button>
                           </>
@@ -1047,9 +1055,11 @@ export default function Attendance() {
             <DialogDescription>
               {editingId
                 ? isEmployee
-                  ? "Correct your check-in / check-out times for this record. It will be sent for admin review."
-                  : "Update the check-in/check-out times, status, or notes for this record."
-                : "Enter both check-in and check-out for a date (useful for back-filling records)."}
+                  ? "Correct the date or check-in / check-out times for this record. It will be sent for admin review."
+                  : "Update the date, check-in/check-out times, status, or notes for this record."
+                : isEmployee
+                  ? "Add a day you forgot to record. Only one record per day is allowed, and it will be sent for admin review."
+                  : "Enter both check-in and check-out for a date (useful for back-filling records)."}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
@@ -1078,14 +1088,14 @@ export default function Attendance() {
                   type="date"
                   value={form.date}
                   onChange={(e) => setForm({ ...form, date: e.target.value })}
-                  disabled={isEmployee && !!editingId}
+                  max={isEmployee ? todayISO() : undefined}
                 />
               </div>
               <div className="space-y-2">
                 <Label>Status</Label>
                 {isEmployee ? (
                   <div className="text-xs text-muted-foreground p-2 border rounded-md bg-muted/50">
-                    {editingId ? "Resets to Pending for admin review after your edit" : "Recorded automatically"}
+                    {editingId ? "Resets to Pending for admin review after your edit" : "Saved as Pending for admin review"}
                   </div>
                 ) : (
                   <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v })}>

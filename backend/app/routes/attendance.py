@@ -153,12 +153,12 @@ def action_check_in(payload: _CheckIn, db: Session = Depends(get_db), current_us
 
     att = db.query(Attendance).filter(Attendance.employee_id == emp.id, Attendance.date == today).first()
 
-    # If already checked in AND checked out for today, reject duplicate
-    if att and att.clock_in and att.clock_out:
-        raise HTTPException(status_code=400, detail="Already checked in and out for today. Only one check-in and one check-out per day is allowed.")
+    # Only one check-in per day — a second one would overwrite the first
+    if att and att.clock_in:
+        raise HTTPException(status_code=400, detail="Already checked in for this day. Only one check-in and one check-out per day is allowed.")
 
     if att:
-        # Has check-in but no check-out — update existing
+        # Record exists without a check-in (e.g. marked absent) — fill it in
         att.clock_in = ci
         if payload.lunch_included:
             att.auto_lunch_counted = True
@@ -280,6 +280,24 @@ def _employee_edit_enabled(db: Session) -> bool:
     return str(setting.value).strip().lower() in ("1", "true", "yes", "on")
 
 
+def _ensure_employee_date_allowed(att_date: dt_date) -> None:
+    """Employees may back-fill missed days, but never future-date a record."""
+    if att_date > get_bd_now().date():
+        raise HTTPException(status_code=400, detail="Attendance cannot be recorded for a future date")
+
+
+def _ensure_date_free(db: Session, employee_id: str, att_date: dt_date, exclude_id: str | None = None) -> None:
+    """One attendance record (one check-in, one check-out) per employee per day."""
+    query = db.query(Attendance).filter(Attendance.employee_id == employee_id, Attendance.date == att_date)
+    if exclude_id:
+        query = query.filter(Attendance.id != exclude_id)
+    if query.first():
+        raise HTTPException(
+            status_code=400,
+            detail=f"An attendance record already exists for {att_date.isoformat()}. Only one check-in and one check-out per day is allowed.",
+        )
+
+
 @router.get("/permissions")
 def get_attendance_permissions(db: Session = Depends(get_db), current_user: Any = Depends(get_current_user)):
     return success_response(data={"employee_edit_enabled": _employee_edit_enabled(db)})
@@ -299,7 +317,7 @@ def update_attendance_permissions(payload: _PermissionsUpdate, db: Session = Dep
         setting = Setting(
             key=EMPLOYEE_EDIT_SETTING_KEY,
             value=value,
-            description="When true, employees can edit their own attendance check-in/check-out times. Edited records reset to pending for admin review.",
+            description="When true, employees can edit their own attendance dates and check-in/check-out times and add missed days. Edited records reset to pending for admin review.",
         )
         db.add(setting)
     db.commit()
@@ -376,10 +394,36 @@ def create_attendance(data: AttendanceCreate, db: Session = Depends(get_db), cur
         raise HTTPException(status_code=400, detail="Employee and date are required")
 
     if _is_employee_role(db, current_user):
-        raise HTTPException(
-            status_code=403,
-            detail="Employees cannot create manual attendance records. Use Check In / Check Out instead.",
+        # While the admin's self-editing window is open, employees may back-fill
+        # a day they forgot to record — for themselves only, never a day that
+        # already has a record, and always pending admin review.
+        if not _employee_edit_enabled(db):
+            raise HTTPException(
+                status_code=403,
+                detail="Employees cannot create manual attendance records. Use Check In / Check Out instead.",
+            )
+        my_emp = _get_current_employee(db, current_user)
+        if not my_emp:
+            raise HTTPException(status_code=403, detail="No employee profile linked to your account")
+        _ensure_employee_date_allowed(att_date)
+        _ensure_date_free(db, my_emp.id, att_date)
+        if not ci:
+            raise HTTPException(status_code=400, detail="Check-in time is required")
+        if ci and co and co <= ci:
+            raise HTTPException(status_code=400, detail="Check-out time must be after check-in time")
+        att = Attendance(
+            employee_id=my_emp.id,
+            date=att_date,
+            clock_in=ci,
+            clock_out=co,
+            status="pending",
+            auto_lunch_counted=lunch_flag,
+            notes=data_dict.get("notes") or None,
         )
+        db.add(att)
+        db.commit()
+        db.refresh(att)
+        return success_response(data=_att_to_dict(att, my_emp))
 
     existing = db.query(Attendance).filter(
         Attendance.employee_id == employee_id,
@@ -442,7 +486,7 @@ def get_attendance(attendance_id: str, db: Session = Depends(get_db), current_us
 # Fields employees are allowed to modify on their OWN records while the
 # admin-controlled editing window is open.
 _EMPLOYEE_EDITABLE_FIELDS = {
-    "check_in", "check_out", "clock_in", "clock_out",
+    "date", "check_in", "check_out", "clock_in", "clock_out",
     "lunch_taken", "lunch_included", "auto_lunch_counted", "notes",
 }
 
@@ -464,10 +508,17 @@ def update_attendance(attendance_id: str, data: AttendanceUpdate, db: Session = 
         my_emp = _get_current_employee(db, current_user)
         if not my_emp or att.employee_id != my_emp.id:
             raise HTTPException(status_code=403, detail="You can only edit your own attendance records")
-        # Employees may only adjust times / lunch / notes (not date, employee or status)
+        # Employees may only adjust date / times / lunch / notes (not employee or status)
         update_data = {k: v for k, v in update_data.items() if k in _EMPLOYEE_EDITABLE_FIELDS}
         if not update_data:
-            raise HTTPException(status_code=403, detail="Employees can only edit check-in / check-out times, lunch and notes")
+            raise HTTPException(status_code=403, detail="Employees can only edit the date, check-in / check-out times, lunch and notes")
+
+    new_date = update_data.get("date")
+    if new_date and new_date != att.date:
+        if is_employee:
+            _ensure_employee_date_allowed(new_date)
+        _ensure_date_free(db, att.employee_id, new_date, exclude_id=att.id)
+        att.date = new_date
 
     if "clock_in" in update_data and update_data["clock_in"]:
         att.clock_in = update_data["clock_in"]

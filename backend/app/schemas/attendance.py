@@ -1,4 +1,5 @@
 from datetime import date, time, datetime
+from datetime import date as _date
 from pydantic import BaseModel
 
 
@@ -33,6 +34,7 @@ class AttendanceCreate(BaseModel):
 
 
 class AttendanceUpdate(BaseModel):
+    date: _date | None = None
     check_in: str | None = None
     check_out: str | None = None
     clock_in: time | None = None
