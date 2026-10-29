@@ -106,12 +106,12 @@ class InventoryService:
     def create(self, data: dict) -> InventoryItem:
         existing = (
             self.db.query(InventoryItem)
-                .filter(InventoryItem.item_code == data.get("item_code"),
-                        InventoryItem.deleted_at.is_(None))
+                .filter(InventoryItem.item_code == data.get("item_code"))
                 .first()
         )
         if existing:
-            raise HTTPException(status_code=400, detail="Item code already exists")
+            detail = "Item code belongs to a deleted item" if existing.deleted_at else "Item code already exists"
+            raise HTTPException(status_code=400, detail=detail)
         if data.get("quantity") is None or data["quantity"] < 0:
             raise HTTPException(status_code=400, detail="Quantity must be >= 0")
         return self.repo.create(data)
@@ -122,7 +122,6 @@ class InventoryService:
             conflict = (
                 self.db.query(InventoryItem)
                     .filter(InventoryItem.item_code == data["item_code"],
-                            InventoryItem.deleted_at.is_(None),
                             InventoryItem.id != record.id)
                     .first()
             )
@@ -199,7 +198,9 @@ class InventoryService:
                 self.db.commit()
             except Exception as exc:
                 self.db.rollback()
-                raise HTTPException(status_code=500, detail=f"Failed to save inventory items: {exc}")
+                # Report only the DB error, not the full INSERT with every parameter.
+                reason = str(getattr(exc, "orig", None) or exc).strip()
+                raise HTTPException(status_code=500, detail=f"Failed to save inventory items: {reason}")
 
         parts = [f"{created} item(s) created", f"{updated} item(s) updated"]
         if errors:
@@ -351,6 +352,8 @@ class InventoryService:
                 f"Item Code '{item_code}' was not found — Name and Category are required to create it"
                 if item_code else "Name and Category are required"
             )
+        if item_code and self.db.query(InventoryItem.id).filter(InventoryItem.item_code == item_code).first():
+            raise _RowError(f"Item Code '{item_code}' belongs to a deleted item — use a different code")
         if not item_code:
             item_code = self.get_next_item_code(provided["category"], provided.get("item_type") or "equipment")
             # The DB query can't see rows added earlier in this same import
@@ -516,10 +519,10 @@ class InventoryService:
             raise HTTPException(status_code=400, detail="Category is required to generate an item code")
         prefix = f"{_category_code(category)}-{ITEM_TYPE_CODES.get(item_type, 'OTH')}-"
         pattern = re.compile(r"^" + re.escape(prefix) + r"(\d+)$")
+        # Include soft-deleted rows: item_code is unique across the whole table.
         rows = (
             self.db.query(InventoryItem.item_code)
-                .filter(InventoryItem.item_code.like(f"{prefix}%"),
-                        InventoryItem.deleted_at.is_(None))
+                .filter(InventoryItem.item_code.like(f"{prefix}%"))
                 .all()
         )
         max_seq = 0
