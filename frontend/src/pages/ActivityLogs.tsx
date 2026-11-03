@@ -253,7 +253,7 @@ export default function ActivityLogs() {
           <div>
             <CardTitle>Recent Activity</CardTitle>
             <CardDescription>
-              {total} event{total === 1 ? "" : "s"}{hasFilters ? " match your filters" : ""}. Times are Bangladesh time. Click the eye icon to see full details.
+              {total} event{total === 1 ? "" : "s"}{hasFilters ? " match your filters" : ""}. Times are Bangladesh time. Click View on any row to see full details.
             </CardDescription>
           </div>
           <History className="h-6 w-6 text-muted-foreground" />
@@ -320,12 +320,12 @@ export default function ActivityLogs() {
                   <TableCell className="font-mono text-xs text-muted-foreground">{r.ip_address || "—"}</TableCell>
                   <TableCell className="text-right">
                     <Button
-                      variant="ghost"
-                      size="icon"
+                      variant="outline"
+                      size="sm"
                       title="View full details"
                       onClick={(e) => { e.stopPropagation(); setViewId(r.id) }}
                     >
-                      <Eye className="h-4 w-4 text-blue-600" />
+                      <Eye className="h-4 w-4 mr-1 text-blue-600" /> View
                     </Button>
                   </TableCell>
                 </TableRow>
