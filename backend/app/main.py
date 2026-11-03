@@ -10,7 +10,7 @@ from app.routes import auth, user, employee, attendance, salary, leave, task, re
 from app.middleware.auth_middleware import AuthContextMiddleware
 from app.middleware.audit_middleware import AuditMiddleware
 from app.services.attendance_scheduler import run_lock_sweep, shutdown_scheduler, start_scheduler
-from app.utils.schema_migrations import migrate_inventory_department_assignments
+from app.utils.schema_migrations import ensure_activity_log_meta_column, migrate_inventory_department_assignments
 
 app = FastAPI(title="HR CRM API", version="1.0.0")
 
@@ -160,9 +160,6 @@ def _run_sqlite_migrations() -> None:
             _add_column_if_missing(conn, "attendances", "approved_by", "VARCHAR(36)")
             _add_column_if_missing(conn, "attendances", "rejected_by", "VARCHAR(36)")
 
-            # Structured audit details (request, before/after changes)
-            _add_column_if_missing(conn, "activity_logs", "meta", "TEXT")
-
             # Requisition expense approval workflow
             _add_column_if_missing(conn, "requisition_expenses", "status", "VARCHAR(20) DEFAULT 'pending'")
             _add_column_if_missing(conn, "requisition_expenses", "approved_by", "VARCHAR(36)")
@@ -248,13 +245,6 @@ def _run_postgres_migrations() -> None:
         except Exception:
             pass
 
-        # Structured audit details (request, before/after changes)
-        try:
-            _add_column_if_missing(conn, "activity_logs", "meta", "TEXT")
-            conn.commit()
-        except Exception:
-            conn.rollback()
-
         # Add salary columns: working_days and days_attended
         try:
             _add_column_if_missing(conn, "salaries", "working_days", "INTEGER DEFAULT 0")
@@ -318,6 +308,10 @@ def on_startup():
         migrate_inventory_department_assignments(engine)
     except Exception:
         logging.getLogger(__name__).exception("Inventory department migration failed")
+    try:
+        ensure_activity_log_meta_column(engine)
+    except Exception:
+        logging.getLogger(__name__).exception("Activity log meta column migration failed")
 
     # Serve uploaded files at /uploads/
     uploads_root = "/app/uploads"

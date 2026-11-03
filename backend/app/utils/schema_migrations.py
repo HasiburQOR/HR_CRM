@@ -62,3 +62,20 @@ def _relax_sqlite_assignments(engine) -> None:
         ))
         conn.execute(text(f"DROP TABLE {_ASSIGNMENTS_OLD}"))
         print("Made column optional: inventory_assignments.employee_id")
+
+
+def ensure_activity_log_meta_column(engine) -> None:
+    """Add activity_logs.meta (structured audit details) if it is missing.
+
+    Runs in its own transaction so an earlier failed migration step cannot
+    leave it unapplied. Also called after a backup restore, because a backup
+    taken before this column existed recreates the table without it.
+    """
+    if "activity_logs" not in inspect(engine).get_table_names():
+        return  # fresh database — create_all builds the table with the column
+    cols = {c["name"] for c in inspect(engine).get_columns("activity_logs")}
+    if "meta" in cols:
+        return
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE activity_logs ADD COLUMN meta TEXT"))
+    print("Added column: activity_logs.meta")

@@ -68,6 +68,9 @@ try:
     # Inventory hand-outs to a department (adds department, makes employee_id optional)
     from app.utils.schema_migrations import migrate_inventory_department_assignments
     migrate_inventory_department_assignments(engine)
+    # Structured audit details on activity logs
+    from app.utils.schema_migrations import ensure_activity_log_meta_column
+    ensure_activity_log_meta_column(engine)
 finally:
     db.close()
 

@@ -42,6 +42,17 @@ def _pg_env():
     return env
 
 
+def _reapply_schema_after_restore() -> None:
+    """A backup taken before a column was added restores without it; add the
+    columns the running code needs so it keeps working without a restart."""
+    try:
+        from app.database import engine
+        from app.utils.schema_migrations import ensure_activity_log_meta_column
+        ensure_activity_log_meta_column(engine)
+    except Exception:
+        pass
+
+
 def _backup_to_dict(b) -> dict:
     return {
         "id": b.id,
@@ -242,6 +253,7 @@ class BackupService:
             engine.dispose()
         except Exception:
             pass
+        _reapply_schema_after_restore()
         return True
 
     def import_and_restore(self, filename: str, file_bytes: bytes):
@@ -301,6 +313,7 @@ class BackupService:
             engine.dispose()
         except Exception:
             pass
+        _reapply_schema_after_restore()
 
         try:
             data = {
