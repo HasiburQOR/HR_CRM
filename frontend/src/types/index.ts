@@ -178,25 +178,50 @@ export interface Backup {
   [key: string]: any
 }
 
+export interface ActivityLogTarget {
+  type: string
+  id: string
+  label: string
+}
+
+export interface ActivityLogChange {
+  from: any
+  to: any
+}
+
+export interface ActivityLogMeta {
+  method?: string
+  path?: string
+  query?: Record<string, string> | null
+  status_code?: number
+  duration_ms?: number
+  user_agent?: string | null
+  actor?: { user_id: string; username: string; full_name?: string | null; employee?: string } | null
+  target?: ActivityLogTarget | null
+  request?: any
+  change_type?: "created" | "updated" | "deleted"
+  changes?: Record<string, ActivityLogChange> | null
+  record?: Record<string, any> | null
+}
+
 export interface ActivityLog {
   id: string
-  username?: string
-  user_name?: string
-  full_name?: string
-  account_id?: string
   user_id?: string | null
-  employee_name?: string
-  employee_id?: string
+  username?: string | null
+  full_name?: string | null
+  employee_name?: string | null
+  employee_id?: string | null
   action?: string
   resource_type?: string
-  entity_type?: string
-  entity_id?: string | null
   resource_id?: string | null
-  details?: string | Record<string, any> | any
-  ip_address?: string
-  timestamp?: string | null
+  target?: ActivityLogTarget | null
+  method?: string | null
+  change_type?: string | null
+  change_count?: number
+  details?: string | null
+  ip_address?: string | null
   created_at?: string | null
-  [key: string]: any
+  meta?: ActivityLogMeta | null
 }
 
 export interface Setting {

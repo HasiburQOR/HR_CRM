@@ -12,11 +12,24 @@ export function formatDate(date: string | Date | null | undefined): string {
   return d.toISOString().split("T")[0]
 }
 
+// "sv-SE" formats as "YYYY-MM-DD HH:mm:ss". Always shown in Bangladesh time —
+// toISOString() would show UTC, six hours behind.
+const BD_DATE_TIME = new Intl.DateTimeFormat("sv-SE", {
+  timeZone: "Asia/Dhaka",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hour12: false,
+})
+
 export function formatDateTime(date: string | Date | null | undefined): string {
   if (!date) return ""
   const d = typeof date === "string" ? new Date(date) : date
   if (isNaN(d.getTime())) return ""
-  return d.toISOString().replace("T", " ").split(".")[0]
+  return BD_DATE_TIME.format(d)
 }
 
 export function formatCurrency(amount: number): string {

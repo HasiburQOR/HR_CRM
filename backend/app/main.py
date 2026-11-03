@@ -160,6 +160,9 @@ def _run_sqlite_migrations() -> None:
             _add_column_if_missing(conn, "attendances", "approved_by", "VARCHAR(36)")
             _add_column_if_missing(conn, "attendances", "rejected_by", "VARCHAR(36)")
 
+            # Structured audit details (request, before/after changes)
+            _add_column_if_missing(conn, "activity_logs", "meta", "TEXT")
+
             # Requisition expense approval workflow
             _add_column_if_missing(conn, "requisition_expenses", "status", "VARCHAR(20) DEFAULT 'pending'")
             _add_column_if_missing(conn, "requisition_expenses", "approved_by", "VARCHAR(36)")
@@ -244,6 +247,13 @@ def _run_postgres_migrations() -> None:
             conn.commit()
         except Exception:
             pass
+
+        # Structured audit details (request, before/after changes)
+        try:
+            _add_column_if_missing(conn, "activity_logs", "meta", "TEXT")
+            conn.commit()
+        except Exception:
+            conn.rollback()
 
         # Add salary columns: working_days and days_attended
         try:

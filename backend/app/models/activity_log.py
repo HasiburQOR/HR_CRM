@@ -12,3 +12,6 @@ class ActivityLog(BaseModel):
     resource_id = Column(String(36), nullable=True)
     details = Column(Text, nullable=True)
     ip_address = Column(String(50), nullable=True)
+    # JSON: method, path, status code, user agent, target, request body
+    # (secrets redacted) and before/after field changes.
+    meta = Column(Text, nullable=True)

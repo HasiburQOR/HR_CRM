@@ -15,6 +15,9 @@ export const activityLogService = {
     limit?: number
     date_from?: string
     date_to?: string
+    search?: string
+    user_id?: string
+    resource_type?: string
   } = {}): Promise<ActivityLogListResponse> {
     const res = await api.get<ActivityLogListResponse>("/activity-logs", { params })
     return res.data as unknown as ActivityLogListResponse

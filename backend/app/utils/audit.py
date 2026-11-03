@@ -11,6 +11,7 @@ def log_activity(
     resource_id: str | None = None,
     details: str | None = None,
     ip_address: str | None = None,
+    meta: str | None = None,
 ) -> ActivityLog:
     log_entry = ActivityLog(
         user_id=user_id,
@@ -19,6 +20,7 @@ def log_activity(
         resource_id=resource_id,
         details=details,
         ip_address=ip_address,
+        meta=meta,
     )
     db.add(log_entry)
     db.commit()
