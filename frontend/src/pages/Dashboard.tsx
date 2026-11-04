@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { Users, CalendarClock, Wallet, CalendarCheck, Check, X, CheckCircle, Banknote, ListTodo, Receipt, CalendarDays, Package, AlertTriangle, UserPlus, UtensilsCrossed, Bell } from "lucide-react"
+import { Users, CalendarClock, Wallet, CalendarCheck, Check, X, CheckCircle, Banknote, ListTodo, Receipt, CalendarDays, Package, AlertTriangle, UserPlus, Bell } from "lucide-react"
 import { dashboardService } from "@/services/dashboard.service"
 import { leaveService } from "@/services/leave.service"
 import { expenseService } from "@/services/expense.service"
@@ -263,13 +263,6 @@ export default function Dashboard() {
             icon={Banknote}
             loading={loading}
             className="bg-emerald-50"
-          />
-          <StatCard
-            title="Will Have Lunch Tomorrow"
-            value={stats?.lunch_count_today ?? 0}
-            icon={UtensilsCrossed}
-            loading={loading}
-            className="bg-orange-50"
           />
         </div>
       )}

@@ -6,7 +6,6 @@ import {
   LogIn,
   LogOut,
   Clock,
-  UtensilsCrossed,
   Edit3,
   Pencil,
   Eye,
@@ -129,7 +128,6 @@ export default function Attendance() {
     date: string
     check_in: string
     check_out: string
-    lunch_included: boolean
     status: string
     notes: string
   }>({
@@ -137,7 +135,6 @@ export default function Attendance() {
     date: todayISO(),
     check_in: nowHHMM(),
     check_out: nowHHMM(),
-    lunch_included: false,
     status: "present",
     notes: "",
   })
@@ -301,7 +298,6 @@ export default function Attendance() {
       check_in: nowHHMM(),
       check_out: nowHHMM(),
       employee_id: isEmployee && user?.employee_id ? user.employee_id || "" : "",
-      lunch_included: false,
       status: "present",
       notes: "",
     }))
@@ -315,7 +311,6 @@ export default function Attendance() {
       date: r.date || todayISO(),
       check_in: r.check_in || "",
       check_out: r.check_out || "",
-      lunch_included: Boolean(r.lunch_taken || r.lunch_included || (r as any).auto_lunch_counted),
       status: r.status || "present",
       notes: r.notes || "",
     })
@@ -350,7 +345,6 @@ export default function Attendance() {
         employee_id: form.employee_id,
         date: form.date,
         check_in: form.check_in,
-        lunch_included: form.lunch_included,
         notes: form.notes || undefined,
       })
       toast({ title: "Checked in", variant: "success" })
@@ -402,7 +396,6 @@ export default function Attendance() {
           check_in: form.check_in || undefined,
           check_out: form.check_out || undefined,
           status: form.status,
-          lunch_included: form.lunch_included,
           notes: form.notes || undefined,
         })
         toast({ title: "Updated", variant: "success" })
@@ -413,7 +406,6 @@ export default function Attendance() {
           check_in: form.check_in || undefined,
           check_out: form.check_out || undefined,
           status: form.status,
-          lunch_included: form.lunch_included,
           notes: form.notes || undefined,
         })
         toast({ title: "Recorded", variant: "success" })
@@ -765,7 +757,6 @@ export default function Attendance() {
                 <TableHead>Check In</TableHead>
                 <TableHead>Check Out</TableHead>
                 <TableHead>Hours</TableHead>
-                <TableHead>Lunch</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Notes</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
@@ -774,13 +765,13 @@ export default function Attendance() {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center text-muted-foreground">
+                  <TableCell colSpan={8} className="text-center text-muted-foreground">
                     Loading...
                   </TableCell>
                 </TableRow>
               ) : rows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center text-muted-foreground">
+                  <TableCell colSpan={8} className="text-center text-muted-foreground">
                     No records yet — Check In an employee to start.
                   </TableCell>
                 </TableRow>
@@ -807,15 +798,6 @@ export default function Attendance() {
                           }
                         >
                           {formatHours(r.hours_worked)}
-                        </Badge>
-                      ) : (
-                        <span className="text-muted-foreground text-xs">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {r.lunch_taken || r.lunch_included || r.auto_lunch_counted ? (
-                        <Badge variant="outline" className="gap-1 flex items-center">
-                          <UtensilsCrossed className="h-3 w-3" /> Lunch
                         </Badge>
                       ) : (
                         <span className="text-muted-foreground text-xs">—</span>
@@ -941,21 +923,6 @@ export default function Attendance() {
               </div>
             )}
             <Separator />
-            <div className="flex items-center justify-between rounded-lg border p-3 bg-slate-50">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-md bg-orange-100 flex items-center justify-center">
-                  <UtensilsCrossed className="h-4 w-4 text-orange-700" />
-                </div>
-                <div>
-                  <div className="font-medium text-sm">Will have lunch tomorrow?</div>
-                  <div className="text-xs text-muted-foreground">Marks attendance lunch as provided / counted</div>
-                </div>
-              </div>
-              <Switch
-                checked={form.lunch_included}
-                onCheckedChange={(v) => setForm({ ...form, lunch_included: v })}
-              />
-            </div>
             <div className="space-y-2">
               <Label>Notes (optional)</Label>
               <Input
@@ -1120,16 +1087,6 @@ export default function Attendance() {
                 <Input type="time" value={form.check_out} onChange={(e) => setForm({ ...form, check_out: e.target.value })} />
               </div>
             </div>
-            <div className="flex items-center justify-between rounded-lg border p-3 bg-slate-50">
-              <div className="flex items-center gap-3">
-                <UtensilsCrossed className="h-4 w-4 text-orange-700" />
-                <div className="text-sm">Lunch provided / counted</div>
-              </div>
-              <Switch
-                checked={form.lunch_included}
-                onCheckedChange={(v) => setForm({ ...form, lunch_included: v })}
-              />
-            </div>
             <div className="space-y-2">
               <Label>Notes</Label>
               <Input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
@@ -1186,12 +1143,6 @@ export default function Attendance() {
                     {viewRecord.status || "pending"}
                   </Badge>
                 </div>
-              </div>
-              <div className="border rounded-lg p-3 bg-muted/50">
-                <p className="text-xs text-muted-foreground">Lunch</p>
-                <p className="font-semibold">
-                  {viewRecord.lunch_taken || viewRecord.lunch_included || (viewRecord as any).auto_lunch_counted ? "Provided / Counted" : "—"}
-                </p>
               </div>
               {viewRecord.notes && (
                 <div className="border rounded-lg p-3 bg-muted/50">

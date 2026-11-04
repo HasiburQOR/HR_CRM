@@ -184,7 +184,6 @@ def report_attendance(
             "Clock In": str(a.clock_in) if a.clock_in else "-",
             "Clock Out": str(a.clock_out) if a.clock_out else "-",
             "Hours Worked": _fmt_hours(_att_seconds(a)),
-            "Lunch": "Yes" if a.auto_lunch_counted else "No",
             "Status": a.status,
             "Notes": a.notes or "",
         }
@@ -504,68 +503,6 @@ def report_inventory(
     )
 
 
-@router.get("/lunch")
-def report_lunch(
-    db: Session = Depends(get_db),
-    current_user: Any = Depends(get_current_user),
-    month: str | None = Query(None),
-    year: int | None = Query(None),
-    date: str | None = Query(None),
-    start_date: str | None = Query(None),
-    end_date: str | None = Query(None),
-    employee_id: str | None = Query(None),
-    period: str | None = Query(None),
-    period_value: str | None = Query(None),
-):
-    q = db.query(Attendance, Employee).outerjoin(Employee, Attendance.employee_id == Employee.id)
-
-    # Only return records where lunch was selected
-    q = q.filter(Attendance.auto_lunch_counted.is_(True))
-
-    if date:
-        q = q.filter(Attendance.date == date)
-    elif start_date and end_date:
-        q = q.filter(Attendance.date >= start_date, Attendance.date <= end_date)
-    elif period:
-        q = _apply_period_filters(q, Attendance.date,
-                                  period=period,
-                                  period_value=period_value,
-                                  year=year,
-                                  month=month,
-                                  day=None,
-                                  start_date=start_date,
-                                  end_date=end_date,
-                                  specific_date=date)
-    elif month and month.lower() in MONTH_MAP:
-        m_num = MONTH_MAP[month.lower()]
-        q = q.filter(extract('month', Attendance.date) == m_num)
-        if year:
-            q = q.filter(extract('year', Attendance.date) == year)
-    if employee_id and employee_id != "all":
-        q = q.filter(Attendance.employee_id == employee_id)
-
-    records = q.order_by(Attendance.date.desc()).all()
-    data = [
-        {
-            "Employee ID": e.employee_id if e else "",
-            "Employee": f"{e.first_name} {e.last_name}" if e else a.employee_id,
-            "Date": str(a.date),
-            "Clock In": str(a.clock_in) if a.clock_in else "-",
-            "Clock Out": str(a.clock_out) if a.clock_out else "-",
-            "Lunch Included": "Yes" if a.auto_lunch_counted else "No",
-            "Status": a.status,
-            "Notes": a.notes or "",
-        }
-        for a, e in records
-    ]
-    output = _to_excel(data, "Lunch Report")
-    return StreamingResponse(
-        output,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": "attachment; filename=lunch_report.xlsx"}
-    )
-
-
 @router.get("/employee/{employee_id}")
 def report_employee_individual(
     employee_id: str,
@@ -604,7 +541,6 @@ def report_employee_individual(
             "Clock In": str(a.clock_in) if a.clock_in else "-",
             "Clock Out": str(a.clock_out) if a.clock_out else "-",
             "Hours Worked": _fmt_hours(_att_seconds(a)),
-            "Lunch": "Yes" if a.auto_lunch_counted else "No",
             "Status": a.status,
             "Notes": a.notes or "",
         })
